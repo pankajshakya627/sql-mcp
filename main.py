@@ -37,14 +37,7 @@ from resources.catalog import (
     get_usage_guide,
     get_connection_info
 )
-from prompts.templates import (
-    query_helper,
-    schema_explorer,
-    sql_generator_prompt,
-    multi_step_analysis,
-    comparison_query,
-    report_generator
-)
+# Note: Prompts are now defined inline in main.py as templates
 
 # Load environment variables
 load_dotenv()
@@ -250,43 +243,141 @@ def resource_connection_info() -> str:
 
 
 # =============================================================================
-# MCP PROMPTS
+# MCP PROMPTS (Templates for ChatGPT)
 # =============================================================================
 
-@mcp.prompt()
-def prompt_query_helper(question: str) -> str:
-    """Prompt for database questions."""
-    return query_helper(question)
+@mcp.prompt(
+    name="Employee Report",
+    description="Generate a comprehensive employee summary report with department breakdown"
+)
+def prompt_employee_report() -> str:
+    """Generate employee summary report."""
+    logger.info("📋 Template used: Employee Report")
+    return """Generate an Employee Summary Report:
+
+WORKFLOW:
+1. Call get_schema to understand the database structure
+2. Use ask_database to get total employee count
+3. Use ask_database to get employee count by department
+4. Use ask_database to get employee count by role
+5. Format results as a professional report with tables
+
+OUTPUT: Present a formatted report with:
+- Executive summary
+- Department breakdown table
+- Role distribution table
+- Key insights and recommendations"""
 
 
-@mcp.prompt()
+@mcp.prompt(
+    name="SQL Query Builder", 
+    description="Generate optimized SQL query from natural language requirement"
+)
+def prompt_sql_builder(requirement: str) -> str:
+    """Build SQL from natural language."""
+    logger.info(f"📋 Template used: SQL Query Builder - {requirement}")
+    return f"""Build an SQL Query:
+
+REQUIREMENT: {requirement}
+
+WORKFLOW:
+1. Call get_schema to see available tables
+2. Use generate_sql_query with the requirement
+3. Use validate_sql to check the generated query
+4. Use get_optimization_tips for performance suggestions
+
+OUTPUT: 
+- The SQL query in a code block
+- Explanation of what it does
+- Any optimization suggestions"""
+
+
+@mcp.prompt(
+    name="Department Analysis",
+    description="Analyze departments including employee counts, projects, and resources"
+)
+def prompt_department_analysis() -> str:
+    """Analyze departments."""
+    logger.info("📋 Template used: Department Analysis")
+    return """Analyze All Departments:
+
+WORKFLOW:
+1. Use list_departments to get all departments
+2. Use ask_database: "How many employees in each department?"
+3. Use ask_database: "How many projects per department?"
+4. Use ask_database: "Which department has most active projects?"
+
+OUTPUT:
+- Department overview table
+- Employee distribution chart
+- Project allocation insights
+- Resource recommendations"""
+
+
+@mcp.prompt(
+    name="Database Schema Explorer",
+    description="Explore and document the complete database structure"
+)
 def prompt_schema_explorer() -> str:
-    """Prompt for schema exploration."""
-    return schema_explorer()
+    """Explore database schema."""
+    logger.info("📋 Template used: Database Schema Explorer")
+    return """Explore Database Schema:
+
+WORKFLOW:
+1. Call get_schema to retrieve complete schema
+2. Identify all tables and their columns
+3. Map foreign key relationships
+4. Document table purposes
+
+OUTPUT:
+- Schema diagram description
+- Table summaries with column types
+- Relationship map
+- Common query patterns for this schema"""
 
 
-@mcp.prompt()
-def prompt_sql_generator(requirement: str) -> str:
-    """Prompt for SQL generation."""
-    return sql_generator_prompt(requirement)
+@mcp.prompt(
+    name="Project Status Report",
+    description="Generate status report for all projects with department allocation"
+)
+def prompt_project_status() -> str:
+    """Generate project status report."""
+    logger.info("📋 Template used: Project Status Report")
+    return """Generate Project Status Report:
+
+WORKFLOW:
+1. Use ask_database: "List all projects with their status"
+2. Use ask_database: "Count projects by status"
+3. Use ask_database: "Projects per department"
+4. Identify departments with highest project load
+
+OUTPUT:
+- Project status summary
+- Status distribution (Active/Completed/etc.)
+- Department workload analysis
+- Recommendations for resource allocation"""
 
 
-@mcp.prompt()
-def prompt_multi_step_analysis(analysis_goal: str) -> str:
-    """Prompt for multi-step analysis."""
-    return multi_step_analysis(analysis_goal)
+@mcp.prompt(
+    name="Custom Query",
+    description="Execute a custom natural language query against the database"
+)
+def prompt_custom_query(question: str) -> str:
+    """Execute custom query."""
+    logger.info(f"📋 Template used: Custom Query - {question}")
+    return f"""Answer Database Question:
 
+QUESTION: {question}
 
-@mcp.prompt()
-def prompt_comparison(entity1: str, entity2: str, metric: str) -> str:
-    """Prompt for entity comparison."""
-    return comparison_query(entity1, entity2, metric)
+WORKFLOW:
+1. Call get_schema if needed to understand structure
+2. Use ask_database with the question
+3. Format the results clearly
 
-
-@mcp.prompt()
-def prompt_report(report_type: str) -> str:
-    """Prompt for report generation."""
-    return report_generator(report_type)
+OUTPUT:
+- Direct answer to the question
+- Supporting data in table format
+- Any relevant insights"""
 
 
 # =============================================================================
