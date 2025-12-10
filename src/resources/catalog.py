@@ -20,7 +20,58 @@ def get_database_schema_resource() -> str:
     The complete database schema including tables, columns, and relationships.
     Use this resource to understand the database structure before generating queries.
     """
-    return DATABASE_SCHEMA
+    return DATABASE_SCHEMA + """
+
+## Sample Data (for reference)
+
+### Departments
+| ID | Name | Location |
+|----|------|----------|
+| 1 | Engineering | Building A |
+| 2 | HR | Building B |
+| 3 | Sales | Building C |
+| 4 | Marketing | Building B |
+
+### Roles
+| ID | Title | Salary Range |
+|----|-------|--------------|
+| 1 | Software Engineer | 80k-120k |
+| 2 | Senior Engineer | 120k-160k |
+| 3 | HR Manager | 70k-100k |
+| 4 | Sales Representative | 50k-80k |
+| 5 | Marketing Specialist | 60k-90k |
+
+### Employees
+| ID | Name | Department | Role |
+|----|------|------------|------|
+| 1 | Alice Smith | Engineering | Senior Engineer |
+| 2 | Bob Jones | Engineering | Software Engineer |
+| 3 | Charlie Brown | HR | HR Manager |
+| 4 | Diana Prince | Sales | Sales Representative |
+| 5 | Evan Wright | Marketing | Marketing Specialist |
+
+### Projects
+| ID | Name | Department | Status |
+|----|------|------------|--------|
+| 1 | Project Alpha | Engineering | Active |
+| 2 | Project Beta | Engineering | Active |
+| 3 | Recruitment Drive | HR | Active |
+| 4 | Q4 Sales Push | Sales | Active |
+
+## Common Query Patterns
+
+1. **Join employees with departments:**
+   `SELECT e.name, d.name FROM employee e JOIN department d ON e.department_id = d.id`
+
+2. **Count by group:**
+   `SELECT d.name, COUNT(*) FROM employee e JOIN department d ON e.department_id = d.id GROUP BY d.name`
+
+3. **String matching (case-insensitive):**
+   `SELECT * FROM employee WHERE name ILIKE '%smith%'`
+
+4. **Filter by status:**
+   `SELECT * FROM project WHERE status = 'Active'`
+"""
 
 
 def get_tool_catalog() -> str:
