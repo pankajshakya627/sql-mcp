@@ -285,4 +285,9 @@ def prompt_report(report_type: str) -> str:
 # =============================================================================
 
 if __name__ == "__main__":
-    mcp.run()
+    # mcp.run()
+    mcp.run(
+        host="0.0.0.0",
+        port=8000,
+        transport='http'
+    )
