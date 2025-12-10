@@ -30,7 +30,7 @@ def get_llm():
         raise ValueError("OPENROUTER_API_KEY or OPENAI_API_KEY environment variable not set.")
     
     return ChatOpenAI(
-        model="x-ai/grok-4.1-fast:free",
+        model="amazon/nova-2-lite-v1:free",
         openai_api_key=api_key,
         openai_api_base="https://openrouter.ai/api/v1",
         temperature=0
