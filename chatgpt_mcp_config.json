@@ -1,0 +1,13 @@
+{
+    "mcpServers": {
+        "text-to-sql": {
+            "command": "python",
+            "args": [
+                "/Volumes/CrucialX9_MAC/Local_MCPs/sql-db-mcp/text_to_sql_server.py"
+            ],
+            "env": {
+                "OPENROUTER_API_KEY": "your-api-key-here"
+            }
+        }
+    }
+}

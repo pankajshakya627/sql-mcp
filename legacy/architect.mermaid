@@ -1,0 +1,16 @@
+graph TD
+    subgraph "Your Codebase"
+        L[LangGraph Logic]
+        M[MCP Server Wrapper]
+        C[CLI Script query.py]
+    end
+
+    subgraph "External World"
+        CD[chantgpt-4 API]
+        U[User Terminal]
+    end
+
+    L --> M
+    L --> C
+    M -- "MCP Protocol" --> CD
+    C -- "Direct Execution" --> U
