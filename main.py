@@ -200,6 +200,102 @@ def list_departments() -> str:
 
 
 # =============================================================================
+# TEMPLATE TOOLS (Report Generators)
+# =============================================================================
+
+@mcp.tool()
+def employee_report() -> str:
+    """Generate a comprehensive employee summary report with department and role breakdown."""
+    try:
+        employees = get_employees()
+        departments = get_departments()
+        schema = get_database_schema()
+        
+        return f"""# Employee Summary Report
+
+## Overview
+Generated employee report based on organization database.
+
+## Database Schema
+{schema}
+
+## All Employees
+{employees}
+
+## All Departments
+{departments}
+
+## Insights
+- Use ask_database for specific queries like "How many employees per department?"
+- Use generate_sql_query to create custom reports
+"""
+    except Exception as e:
+        return f"Error generating report: {e}"
+
+
+@mcp.tool()
+def department_report() -> str:
+    """Generate a department analysis report showing all departments and their details."""
+    try:
+        departments = get_departments()
+        
+        return f"""# Department Analysis Report
+
+## All Departments
+{departments}
+
+## Available Queries
+You can use ask_database with questions like:
+- "How many employees in Engineering?"
+- "Which department has the most projects?"
+- "List employees in Sales department"
+"""
+    except Exception as e:
+        return f"Error generating report: {e}"
+
+
+@mcp.tool()
+def schema_report() -> str:
+    """Generate a complete database schema documentation report."""
+    try:
+        schema = get_database_schema()
+        
+        return f"""# Database Schema Report
+
+{schema}
+
+## Table Relationships
+- employee.department_id → department.id
+- employee.role_id → role.id
+- project.department_id → department.id
+
+## Common Query Patterns
+
+### Join employees with departments:
+```sql
+SELECT e.name, d.name as department
+FROM employee e
+JOIN department d ON e.department_id = d.id;
+```
+
+### Count by department:
+```sql
+SELECT d.name, COUNT(*) as count
+FROM department d
+JOIN employee e ON d.id = e.department_id
+GROUP BY d.name;
+```
+
+### Filter by status:
+```sql
+SELECT * FROM project WHERE status = 'Active';
+```
+"""
+    except Exception as e:
+        return f"Error generating report: {e}"
+
+
+# =============================================================================
 # MCP RESOURCES
 # =============================================================================
 
