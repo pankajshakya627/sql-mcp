@@ -48,6 +48,54 @@ def generate_sql_query(question: str) -> str:
     Returns:
         Generated SQL query string.
     """
+    # Check if LLM is available
+    api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    
+    if not api_key:
+        # Provide helpful response without LLM
+        schema = get_database_schema()
+        return f"""⚠️ LLM API key not configured. Here's guidance for your query:
+
+**Your Question:** {question}
+
+**Available Tables:**
+- employee (id, name, email, department_id, role_id, hire_date)
+- department (id, name, location)
+- role (id, title, salary_range)
+- project (id, name, description, department_id, status)
+
+**Common SQL Patterns:**
+
+1. **List employees with departments:**
+```sql
+SELECT e.name, e.email, d.name as department
+FROM employee e
+JOIN department d ON e.department_id = d.id;
+```
+
+2. **Count by department:**
+```sql
+SELECT d.name, COUNT(e.id) as count
+FROM department d
+LEFT JOIN employee e ON d.id = e.department_id
+GROUP BY d.name;
+```
+
+3. **Filter employees:**
+```sql
+SELECT * FROM employee WHERE name ILIKE '%search_term%';
+```
+
+4. **Active projects:**
+```sql
+SELECT p.name, d.name as department
+FROM project p
+JOIN department d ON p.department_id = d.id
+WHERE p.status = 'Active';
+```
+
+Modify these patterns based on your needs!"""
+    
     llm = get_llm()
     schema = get_database_schema()
     
