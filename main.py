@@ -210,33 +210,42 @@ def list_departments() -> str:
 # MCP RESOURCES
 # =============================================================================
 
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("db-agent-mcp")
+
 @mcp.resource("schema://database")
 def resource_database_schema() -> str:
     """Complete database schema."""
+    logger.info("📖 Resource accessed: schema://database")
     return get_database_schema_resource()
 
 
 @mcp.resource("config://tools")
 def resource_tool_catalog() -> str:
     """Tool catalog with usage patterns."""
+    logger.info("📖 Resource accessed: config://tools")
     return get_tool_catalog()
 
 
 @mcp.resource("samples://queries")
 def resource_sample_queries() -> str:
     """Sample SQL queries."""
+    logger.info("📖 Resource accessed: samples://queries")
     return get_sample_queries()
 
 
 @mcp.resource("guide://usage")
 def resource_usage_guide() -> str:
     """Usage guide for ChatGPT Developer Mode."""
+    logger.info("📖 Resource accessed: guide://usage")
     return get_usage_guide()
 
 
 @mcp.resource("context://connection")
 def resource_connection_info() -> str:
     """Database connection info."""
+    logger.info("📖 Resource accessed: context://connection")
     return get_connection_info()
 
 
