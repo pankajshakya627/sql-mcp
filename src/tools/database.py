@@ -1,109 +1,156 @@
 """
 Database connection and query tools for the MCP server.
+Supports both live database and static schema mode.
 """
-import psycopg
-from psycopg.rows import dict_row
+import os
 from typing import Optional, List, Dict, Any
 
+# Check if we're in static schema mode (no live database)
+STATIC_SCHEMA_MODE = os.environ.get("STATIC_SCHEMA_MODE", "true").lower() == "true"
 
-# Database connection string - uses environment or defaults
-DB_CONN_STRING = "dbname=org_db user=pankajshakya host=localhost port=5432"
+# Try to import psycopg only if not in static mode
+if not STATIC_SCHEMA_MODE:
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+        DB_AVAILABLE = True
+    except ImportError:
+        DB_AVAILABLE = False
+else:
+    DB_AVAILABLE = False
+
+# Database connection string
+DB_CONN_STRING = os.environ.get(
+    "DATABASE_URL",
+    "dbname=org_db user=pankajshakya host=localhost port=5432"
+)
 
 
 def get_connection():
     """Get a database connection."""
+    if not DB_AVAILABLE:
+        raise ConnectionError("Database not configured. Running in static schema mode.")
+    
     try:
         return psycopg.connect(DB_CONN_STRING, row_factory=dict_row)
-    except psycopg.OperationalError:
-        # Fallback for different user if needed
-        return psycopg.connect(
-            "dbname=org_db user=postgres host=localhost port=5432",
-            row_factory=dict_row
-        )
+    except Exception as e:
+        raise ConnectionError(f"Database connection failed: {e}")
 
 
-def query_database(query: str) -> List[Dict[str, Any]]:
+def query_database(query: str) -> str:
     """
     Execute a read-only SQL query against the organization database.
     
-    Args:
-        query: The SQL query to execute. Must be a SELECT statement.
-        
-    Returns:
-        List of dictionaries containing query results.
+    Returns error message if database is not configured.
     """
-    # Basic safety check - strictly read-only
-    if not query.strip().upper().startswith("SELECT"):
-        raise ValueError("Only SELECT queries are allowed.")
-
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(query)
-            return cur.fetchall()
-
-
-def get_employees(department_id: Optional[int] = None) -> List[Dict[str, Any]]:
-    """
-    Get a list of employees, optionally filtered by department.
+    if not DB_AVAILABLE:
+        return ("⚠️ Database not configured - running in static schema mode.\n\n"
+                "Use 'generate_sql_query' to create SQL, or 'get_schema' "
+                "to view the database structure.\n\n"
+                f"Generated query that would run:\n```sql\n{query}\n```")
     
-    Args:
-        department_id: Optional ID of the department to filter by.
-        
-    Returns:
-        List of employee records with department and role info.
-    """
+    if not query.strip().upper().startswith("SELECT"):
+        return "Error: Only SELECT queries are allowed."
+
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query)
+                results = cur.fetchall()
+                return str(results)
+    except Exception as e:
+        return f"Error executing query: {e}"
+
+
+def get_employees(department_id: Optional[int] = None) -> str:
+    """Get a list of employees, optionally filtered by department."""
+    if not DB_AVAILABLE:
+        # Return sample data for demonstration
+        return """⚠️ Database not configured - showing sample data:
+
+| ID | Name | Email | Department | Role |
+|----|------|-------|------------|------|
+| 1 | Alice Smith | alice@org.com | Engineering | Senior Engineer |
+| 2 | Bob Jones | bob@org.com | Engineering | Software Engineer |
+| 3 | Charlie Brown | charlie@org.com | HR | HR Manager |
+| 4 | Diana Prince | diana@org.com | Sales | Sales Representative |
+| 5 | Evan Wright | evan@org.com | Marketing | Marketing Specialist |
+
+*This is sample data. Connect a live database for real results.*"""
+    
     query = """
         SELECT e.id, e.name, e.email, d.name as department, r.title as role
         FROM employee e
         JOIN department d ON e.department_id = d.id
         JOIN role r ON e.role_id = r.id
     """
-    params = []
-    
     if department_id is not None:
-        query += " WHERE e.department_id = %s"
-        params.append(department_id)
-        
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(query, params)
-            return cur.fetchall()
+        query += f" WHERE e.department_id = {department_id}"
+    
+    return query_database(query)
 
 
-def get_departments() -> List[Dict[str, Any]]:
+def get_departments() -> str:
     """List all departments."""
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT * FROM department")
-            return cur.fetchall()
+    if not DB_AVAILABLE:
+        return """⚠️ Database not configured - showing sample data:
+
+| ID | Name | Location |
+|----|------|----------|
+| 1 | Engineering | Building A |
+| 2 | HR | Building B |
+| 3 | Sales | Building C |
+| 4 | Marketing | Building B |
+
+*This is sample data. Connect a live database for real results.*"""
+    
+    return query_database("SELECT * FROM department")
 
 
 def get_database_schema() -> str:
     """
-    Get the schema of the database from PostgreSQL information_schema.
-    Useful for understanding the database structure before querying.
-    
-    Returns:
-        Formatted string with table and column information.
+    Get the database schema.
+    Uses static schema when database is not available.
     """
-    schema_query = """
-        SELECT table_name, column_name, data_type
-        FROM information_schema.columns
-        WHERE table_schema = 'public'
-        ORDER BY table_name, ordinal_position;
-    """
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(schema_query)
-            rows = cur.fetchall()
-            
-    # Format as a readable string
-    schema_str = ""
-    current_table = ""
-    for row in rows:
-        if row['table_name'] != current_table:
-            current_table = row['table_name']
-            schema_str += f"\nTable: {current_table}\n"
-        schema_str += f"  - {row['column_name']} ({row['data_type']})\n"
+    # Always use static schema for consistency
+    try:
+        from schema import DATABASE_SCHEMA
+        return DATABASE_SCHEMA
+    except ImportError:
+        pass
     
-    return schema_str
+    try:
+        from src.schema import DATABASE_SCHEMA
+        return DATABASE_SCHEMA
+    except ImportError:
+        pass
+    
+    # Fallback inline schema
+    return """
+# Database Schema
+
+## Table: department
+  - id: integer (PRIMARY KEY)
+  - name: varchar(100)
+  - location: varchar(100)
+
+## Table: role
+  - id: integer (PRIMARY KEY)
+  - title: varchar(100)
+  - salary_range: varchar(50)
+
+## Table: employee
+  - id: integer (PRIMARY KEY)
+  - name: varchar(100)
+  - email: varchar(100)
+  - department_id: integer (FK → department.id)
+  - role_id: integer (FK → role.id)
+  - hire_date: date
+
+## Table: project
+  - id: integer (PRIMARY KEY)
+  - name: varchar(100)
+  - description: text
+  - department_id: integer (FK → department.id)
+  - status: varchar(20) DEFAULT 'Active'
+"""
