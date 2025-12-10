@@ -1,0 +1,48 @@
+version: "3.8"
+
+services:
+  db-agent-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: db-agent-mcp
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@db:5432/org_db}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - mcp-network
+
+  db:
+    image: postgres:15-alpine
+    container_name: db-agent-postgres
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=org_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/setup_db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d org_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - mcp-network
+
+volumes:
+  postgres_data:
+
+networks:
+  mcp-network:
+    driver: bridge
