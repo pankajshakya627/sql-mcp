@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src
 
 from tools.database import (
     query_database, 
+    query_database_raw,
     get_employees, 
     get_departments, 
     get_database_schema
@@ -126,23 +127,85 @@ except Exception as e:
 
 @mcp.tool()
 def ask_database(question: str) -> str:
-    """Ask a natural language question about the database."""
-    if not agent_graph:
-        return "Error: Agent not initialized. Check API key."
-
-    system_message = SystemMessage(
-        content="You are a helpful SQL assistant. Use the available tools to answer the user's question."
-    )
+    """
+    Smart database assistant - analyzes your question and uses the appropriate tool.
+    First checks database connection, then routes to the best method to answer.
+    """
+    import os
     
-    inputs = {"messages": [system_message, HumanMessage(content=question)]}
+    # Step 1: Check database status
+    db_available = os.environ.get("STATIC_SCHEMA_MODE", "true").lower() != "true"
+    db_url = os.environ.get("DATABASE_URL", "")
     
-    final_response = ""
-    for event in agent_graph.stream(inputs, stream_mode="values"):
-        message = event["messages"][-1]
-        if isinstance(message, BaseMessage) and message.content:
-            final_response = message.content
-             
-    return str(final_response)
+    response_parts = []
+    
+    # Step 2: Determine question type and route appropriately
+    question_lower = question.lower()
+    
+    # Schema/structure questions
+    if any(word in question_lower for word in ["schema", "structure", "tables", "columns", "what tables"]):
+        if "list" in question_lower or "all tables" in question_lower or "what tables" in question_lower:
+            tables_result = query_database_raw("""
+                SELECT table_name FROM information_schema.tables 
+                WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+            """)
+            if tables_result:
+                response_parts.append("**Available Tables:**")
+                for t in tables_result:
+                    response_parts.append(f"- {t['table_name']}")
+            else:
+                response_parts.append("Tables: department, role, employee, project")
+            return "\n".join(response_parts)
+        else:
+            return get_database_schema()
+    
+    # Count questions
+    if any(word in question_lower for word in ["how many", "count", "total"]):
+        # Determine which table
+        table = None
+        if "employee" in question_lower or "people" in question_lower or "staff" in question_lower:
+            table = "employee"
+        elif "department" in question_lower:
+            table = "department"
+        elif "project" in question_lower:
+            table = "project"
+        elif "role" in question_lower:
+            table = "role"
+        
+        if table and db_available and db_url:
+            result = query_database_raw(f"SELECT COUNT(*) as count FROM {table}")
+            if result:
+                return f"**{table.capitalize()} count:** {result[0]['count']}"
+    
+    # List/show questions
+    if any(word in question_lower for word in ["list", "show", "get all", "display"]):
+        if "employee" in question_lower:
+            return query_database("SELECT e.id, e.name, e.email FROM employee e LIMIT 50")
+        elif "department" in question_lower:
+            return query_database("SELECT * FROM department LIMIT 50")
+        elif "project" in question_lower:
+            return query_database("SELECT * FROM project LIMIT 50")
+        elif "role" in question_lower:
+            return query_database("SELECT * FROM role LIMIT 50")
+    
+    # If agent is available, use it for complex questions
+    if agent_graph:
+        try:
+            system_message = SystemMessage(
+                content="You are a SQL assistant. Answer the question using available database tools."
+            )
+            inputs = {"messages": [system_message, HumanMessage(content=question)]}
+            final_response = ""
+            for event in agent_graph.stream(inputs, stream_mode="values"):
+                message = event["messages"][-1]
+                if isinstance(message, BaseMessage) and message.content:
+                    final_response = message.content
+            return str(final_response) if final_response else "No response generated."
+        except Exception as e:
+            return f"Agent error: {e}"
+    
+    # Fallback: generate SQL suggestion
+    return gen_sql(question)
 
 
 @mcp.tool()
@@ -267,45 +330,50 @@ def get_table_info(table_name: str) -> str:
     """
     Get detailed information about a specific table including columns, types, and row count.
     """
+    # Static mode fallback
+    static_schema = {
+        "department": ["id (int)", "name (varchar)", "location (varchar)"],
+        "role": ["id (int)", "title (varchar)", "salary_range (varchar)"],
+        "employee": ["id (int)", "name (varchar)", "email (varchar)", "department_id (int)", "role_id (int)", "hire_date (date)"],
+        "project": ["id (int)", "name (varchar)", "description (text)", "department_id (int)", "status (varchar)"]
+    }
+    
     try:
         # Get column info
         schema_query = f"""
-            SELECT column_name, data_type, is_nullable, column_default
+            SELECT column_name, data_type, is_nullable
             FROM information_schema.columns
             WHERE table_schema = 'public' AND table_name = '{table_name}'
-            ORDER BY ordinal_position;
+            ORDER BY ordinal_position
+            LIMIT 20;
         """
-        columns = query_database(schema_query)
+        columns = query_database_raw(schema_query)
         
-        if isinstance(columns, str) and "static schema mode" in columns:
-            return columns
+        if columns is None:
+            # Return static schema info
+            if table_name.lower() in static_schema:
+                output = f"# Table: {table_name} (Static Mode)\n\n"
+                output += "| Column |\n|--------|\n"
+                for col in static_schema[table_name.lower()]:
+                    output += f"| {col} |\n"
+                return output
+            return f"⚠️ Table '{table_name}' not found in static schema."
         
         # Get row count
-        count_result = query_database(f"SELECT COUNT(*) as count FROM {table_name}")
+        count_result = query_database_raw(f"SELECT COUNT(*) as count FROM {table_name}")
         row_count = count_result[0]['count'] if count_result else 0
         
-        # Format output
+        # Format output (keep it concise)
         output = f"# Table: {table_name}\n\n"
-        output += f"**Total rows:** {row_count}\n\n"
-        output += "## Columns\n\n"
-        output += "| Column | Type | Nullable | Default |\n"
-        output += "|--------|------|----------|--------|\n"
+        output += f"**Rows:** {row_count}\n\n"
+        output += "| Column | Type | Nullable |\n|--------|------|----------|\n"
         for col in columns:
-            output += f"| {col['column_name']} | {col['data_type']} | {col['is_nullable']} | {col.get('column_default', '-')} |\n"
-        
-        # Get sample data
-        sample = query_database(f"SELECT * FROM {table_name} LIMIT 5")
-        if sample and isinstance(sample, list):
-            output += f"\n## Sample Data (5 rows)\n\n"
-            headers = list(sample[0].keys())
-            output += "| " + " | ".join(headers) + " |\n"
-            output += "| " + " | ".join(["---"] * len(headers)) + " |\n"
-            for row in sample:
-                output += "| " + " | ".join(str(row.get(h, "")) for h in headers) + " |\n"
+            output += f"| {col['column_name']} | {col['data_type']} | {col['is_nullable']} |\n"
         
         return output
     except Exception as e:
-        return f"❌ Error getting table info: {e}"
+        return f"❌ Error: {e}"
+
 
 
 @mcp.tool()
@@ -318,10 +386,16 @@ def list_tables() -> str:
             WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
             ORDER BY table_name;
         """
-        tables = query_database(tables_query)
+        tables = query_database_raw(tables_query)
         
-        if isinstance(tables, str) and "static schema mode" in tables:
-            return tables
+        if tables is None:
+            return ("⚠️ Database not configured - showing known tables:\n\n"
+                    "| Table | Description |\n"
+                    "|-------|-------------|\n"
+                    "| department | Organization departments |\n"
+                    "| role | Job roles and salary ranges |\n"
+                    "| employee | Employee records |\n"
+                    "| project | Active projects |\n")
         
         output = "# Database Tables\n\n"
         output += "| Table | Row Count |\n"
@@ -330,7 +404,7 @@ def list_tables() -> str:
         for table in tables:
             table_name = table['table_name']
             try:
-                count_result = query_database(f"SELECT COUNT(*) as count FROM {table_name}")
+                count_result = query_database_raw(f"SELECT COUNT(*) as count FROM {table_name}")
                 count = count_result[0]['count'] if count_result else 0
             except:
                 count = "?"

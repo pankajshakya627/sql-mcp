@@ -40,11 +40,51 @@ def get_connection():
         raise ConnectionError(f"Database connection failed: {e}")
 
 
-def query_database(query: str) -> str:
+def format_as_table(results: list, max_rows: int = 100) -> str:
+    """Format query results as a markdown table with pagination info."""
+    if not results:
+        return "*No results found*"
+    
+    if not isinstance(results, list):
+        return str(results)
+    
+    if not isinstance(results[0], dict):
+        return str(results)
+    
+    headers = list(results[0].keys())
+    total_rows = len(results)
+    
+    # Build table
+    table = "| " + " | ".join(str(h) for h in headers) + " |\n"
+    table += "| " + " | ".join(["---"] * len(headers)) + " |\n"
+    
+    # Limit rows
+    display_rows = results[:max_rows]
+    for row in display_rows:
+        values = [str(row.get(h, ""))[:50] for h in headers]  # Truncate long values
+        table += "| " + " | ".join(values) + " |\n"
+    
+    # Add pagination info
+    if total_rows > max_rows:
+        table += f"\n*Showing {max_rows} of {total_rows} rows. Use LIMIT and OFFSET for pagination.*"
+    else:
+        table += f"\n*Total: {total_rows} rows*"
+    
+    return table
+
+
+def query_database(query: str, page: int = 1, page_size: int = 100):
     """
     Execute a read-only SQL query against the organization database.
     
-    Returns error message if database is not configured.
+    Args:
+        query: SQL SELECT query to execute
+        page: Page number for pagination (1-indexed)
+        page_size: Number of rows per page (max 500)
+    
+    Returns:
+        - Formatted table string when database is available
+        - Error message when not configured or on error
     """
     if not DB_AVAILABLE:
         return ("⚠️ Database not configured - running in static schema mode.\n\n"
@@ -54,15 +94,59 @@ def query_database(query: str) -> str:
     
     if not query.strip().upper().startswith("SELECT"):
         return "Error: Only SELECT queries are allowed."
+    
+    # Limit page size
+    page_size = min(page_size, 500)
+    offset = (page - 1) * page_size
+
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # First get total count (if query doesn't already have LIMIT)
+                if "LIMIT" not in query.upper():
+                    count_query = f"SELECT COUNT(*) as total FROM ({query}) subq"
+                    cur.execute(count_query)
+                    total = cur.fetchone()['total']
+                    
+                    # Add pagination to query
+                    paginated_query = f"{query} LIMIT {page_size} OFFSET {offset}"
+                    cur.execute(paginated_query)
+                else:
+                    cur.execute(query)
+                    total = None
+                
+                results = cur.fetchall()
+                
+                # Format as table
+                output = format_as_table(results, max_rows=page_size)
+                
+                # Add pagination info
+                if total and total > page_size:
+                    total_pages = (total + page_size - 1) // page_size
+                    output += f"\n📄 Page {page} of {total_pages} (Total: {total} rows)"
+                
+                return output
+    except Exception as e:
+        return f"Error executing query: {e}"
+
+
+def query_database_raw(query: str):
+    """
+    Execute query and return raw list of dicts (for internal use by other tools).
+    """
+    if not DB_AVAILABLE:
+        return None
+    
+    if not query.strip().upper().startswith("SELECT"):
+        return None
 
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(query)
-                results = cur.fetchall()
-                return str(results)
-    except Exception as e:
-        return f"Error executing query: {e}"
+                return cur.fetchall()
+    except Exception:
+        return None
 
 
 def get_employees(department_id: Optional[int] = None) -> str:
