@@ -1,0 +1,198 @@
+name: 🤖 PR-Agent Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  pull_request_review_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to analyze'
+        required: false
+        type: number
+      action:
+        description: 'Action to perform'
+        required: false
+        default: 'review'
+        type: choice
+        options:
+          - review
+          - describe
+          - improve
+          - changelog
+          - all
+      provider:
+        description: 'LLM Provider'
+        required: false
+        default: 'groq'
+        type: choice
+        options:
+          - groq
+          - openrouter
+          - openai
+          - anthropic
+      model:
+        description: 'Model name (pick based on provider)'
+        required: false
+        default: 'llama-3.1-8b-instant'
+        type: choice
+        options:
+          # Groq models
+          - llama-3.1-8b-instant
+          - llama-3.3-70b-versatile
+          - mixtral-8x7b-32768
+          # OpenRouter models  
+          - amazon/nova-2-lite-v1:free
+          - x-ai/grok-beta
+          - google/gemini-2.0-flash-exp:free
+          # OpenAI models
+          - gpt-4.1-mini
+          - gpt-4o
+          - gpt-4o-mini
+          # Anthropic models
+          - claude-sonnet-4-5-20250929
+          - claude-3-5-sonnet-20240620
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+# Cancel in-progress runs for the same PR
+concurrency:
+  group: pr-agent-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  pr-agent:
+    runs-on: ubuntu-latest
+    name: 🔍 Analyze PR
+    
+    # Skip if PR is from a fork (security) or from dependabot
+    if: |
+      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch') &&
+      github.actor != 'dependabot[bot]'
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0  # Full history for better diff analysis
+      
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: 📦 Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: 🔢 Get PR Number
+        id: pr
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.pr_number }}" ]; then
+            echo "number=${{ inputs.pr_number }}" >> $GITHUB_OUTPUT
+          else
+            echo "number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: 🎯 Determine Action
+        id: action
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "action=${{ inputs.action || 'review' }}" >> $GITHUB_OUTPUT
+          else
+            # Check for labels to determine action
+            LABELS="${{ join(github.event.pull_request.labels.*.name, ',') }}"
+            if [[ "$LABELS" == *"pr-agent:all"* ]]; then
+              echo "action=all" >> $GITHUB_OUTPUT
+            elif [[ "$LABELS" == *"pr-agent:describe"* ]]; then
+              echo "action=describe" >> $GITHUB_OUTPUT
+            elif [[ "$LABELS" == *"pr-agent:improve"* ]]; then
+              echo "action=improve" >> $GITHUB_OUTPUT
+            elif [[ "$LABELS" == *"pr-agent:changelog"* ]]; then
+              echo "action=changelog" >> $GITHUB_OUTPUT
+            else
+              echo "action=review" >> $GITHUB_OUTPUT
+            fi
+          fi
+      
+      - name: 🚀 Run PR-Agent Analysis
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          LLM_PROVIDER: ${{ inputs.provider || vars.LLM_PROVIDER || 'openrouter' }}
+          OPENROUTER_MODEL: ${{ inputs.model || vars.OPENROUTER_MODEL || '' }}
+          GROQ_MODEL: ${{ inputs.model || vars.GROQ_MODEL || '' }}
+          OPENAI_MODEL: ${{ inputs.model || vars.OPENAI_MODEL || '' }}
+          ANTHROPIC_MODEL: ${{ inputs.model || vars.ANTHROPIC_MODEL || '' }}
+        run: |
+          echo "🤖 Using provider: $LLM_PROVIDER"
+          if [ -n "${{ inputs.model }}" ]; then
+            echo "📦 Using model: ${{ inputs.model }}"
+          fi
+          python cli.py \
+            --action ${{ steps.action.outputs.action }} \
+            --pr-number ${{ steps.pr.outputs.number }} \
+            --repo ${{ github.repository }} \
+            --post-comment
+      
+      - name: ❌ Handle Errors
+        if: failure()
+        uses: actions/github-script@v8
+        with:
+          script: |
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.pr.outputs.number }},
+              body: '❌ **PR-Agent encountered an error during analysis.**\n\nPlease check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.'
+            })
+
+  # Optional: Separate job for comprehensive analysis on labeled PRs
+  comprehensive-review:
+    runs-on: ubuntu-latest
+    name: 📋 Comprehensive Review
+    if: contains(github.event.pull_request.labels.*.name, 'pr-agent:comprehensive')
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: 🚀 Run Comprehensive Analysis
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'openrouter' }}
+        run: |
+          python cli.py \
+            --action all \
+            --pr-number ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --post-comment
