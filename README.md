@@ -215,28 +215,93 @@ The database (`db/local.db`) is auto-created with sample data:
 
 ---
 
-## �💬 Usage Examples
+## 💬 Usage Examples
 
-### In ChatGPT (with MCP connector)
+### Natural Language Queries (via ChatGPT/Claude)
 
 ```
 Use ask_database: "How many employees are in Engineering?"
 ```
 
 ```
+Use ask_database: "Show me the top 5 highest paid roles"
+```
+
+```
+Use ask_database: "Which projects are currently active?"
+```
+
+### AI SQL Generation
+
+```
+Use generate_sql_query: "Find all employees hired in 2023 with their departments"
+```
+
+**Result:**
+
+```sql
+SELECT e.name, e.email, e.hire_date, d.name as department
+FROM employee e
+JOIN department d ON e.department_id = d.id
+WHERE e.hire_date >= '2023-01-01'
+ORDER BY e.hire_date DESC;
+```
+
+### Pagination for Large Results
+
+```
 Use paginated_query with "SELECT * FROM employee" and page_size 20
 ```
 
 ```
-Use get_optimization_tips for my query "SELECT * FROM employee WHERE name LIKE '%john%'"
+Use next_page with session_id "abc12345"
 ```
 
-### Via Streamlit Web UI
+```
+Use goto_page with session_id "abc12345" and page_number 3
+```
 
-1. Run `streamlit run app.py`
-2. Select connection mode in sidebar (PostgreSQL/SQLite/Static)
-3. Navigate to Query Database page
-4. Enter SQL and click Execute
+### Schema Exploration
+
+```
+Use get_schema
+```
+
+```
+Use get_table_info for the "employee" table
+```
+
+```
+Use list_tables
+```
+
+### Query Optimization
+
+```
+Use get_optimization_tips for "SELECT * FROM employee WHERE name LIKE '%john%'"
+```
+
+### Streamlit Web UI
+
+1. **Start the server:**
+
+   ```bash
+   streamlit run app.py --server.port 8090
+   ```
+
+2. **Select connection mode** in sidebar:
+
+   - 🌐 PostgreSQL (Neon.tech)
+   - 💾 SQLite (Local)
+   - 📄 Static (Demo)
+
+3. **Navigate pages:**
+   - 🏠 Dashboard - Quick stats and actions
+   - 🔍 Query Database - Execute SQL
+   - 🤖 AI Generator - Natural language to SQL
+   - 📊 Schema Explorer - Browse tables
+   - 📄 Pagination - Large result sets
+   - 📈 Reports - Pre-built reports
 
 ---
 
