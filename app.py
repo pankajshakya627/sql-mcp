@@ -1,9 +1,27 @@
 """
 🗄️ SQL MCP Server - Streamlit UI
-Interactive web interface for database queries and exploration.
-Exposes ALL functionality from main.py MCP server.
 
-Run with: streamlit run app.py
+An interactive web interface for database queries and exploration.
+Exposes ALL functionality from the main.py MCP server via a user-friendly
+Streamlit web application.
+
+Features:
+- Dashboard with quick stats and actions
+- SQL query execution with syntax validation
+- AI-powered SQL generation from natural language
+- Schema exploration and table previews
+- Paginated query results for large datasets
+- Pre-built data reports
+- Database connection management (PostgreSQL, SQLite, Static)
+
+Usage:
+    streamlit run app.py
+    streamlit run app.py --server.port 8090
+
+Environment Variables:
+    DATABASE_URL: PostgreSQL connection string
+    DATABASE_TYPE: 'sqlite' for local SQLite database
+    OPENROUTER_API_KEY: For AI SQL generation
 """
 import os
 import sys
@@ -167,7 +185,7 @@ def execute_query_dynamic(query: str):
         except Exception as e:
             return f"❌ PostgreSQL Error: {e}"
     
-    return "❌ Unknown database type"
+    return "❌ Unknown database type. Select a valid connection mode in sidebar."
 
 
 def main():
