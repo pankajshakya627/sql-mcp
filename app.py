@@ -65,24 +65,125 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+def get_db_connection():
+    """Get database connection with dynamic configuration."""
+    import psycopg
+    from psycopg.rows import dict_row
+    
+    # Check session state first, then environment
+    db_url = st.session_state.get("database_url") or os.environ.get("DATABASE_URL", "")
+    
+    if not db_url:
+        return None, "No connection string provided"
+    
+    try:
+        conn = psycopg.connect(db_url, row_factory=dict_row)
+        return conn, "Connected"
+    except Exception as e:
+        return None, str(e)
+
+
+def execute_query_dynamic(query: str):
+    """Execute query using dynamic connection."""
+    db_url = st.session_state.get("database_url") or os.environ.get("DATABASE_URL", "")
+    
+    if not db_url or st.session_state.get("use_static_mode", False):
+        # Use static mode
+        return query_database(query)
+    
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+        
+        with psycopg.connect(db_url, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute(query)
+                results = cur.fetchall()
+                
+                if not results:
+                    return "*No results found*"
+                
+                # Format as table
+                headers = list(results[0].keys())
+                table = "| " + " | ".join(str(h) for h in headers) + " |\n"
+                table += "| " + " | ".join(["---"] * len(headers)) + " |\n"
+                
+                for row in results[:50]:  # Limit to 50 rows
+                    values = [str(row.get(h, ""))[:40] for h in headers]
+                    table += "| " + " | ".join(values) + " |\n"
+                
+                if len(results) > 50:
+                    table += f"\n*Showing 50 of {len(results)} rows*"
+                else:
+                    table += f"\n*Total: {len(results)} rows*"
+                
+                return table
+    except Exception as e:
+        return f"❌ Error: {e}"
+
+
 def main():
     # Header
     st.markdown('<p class="main-header">🗄️ SQL MCP Server</p>', unsafe_allow_html=True)
     
+    # Initialize session state
+    if "database_url" not in st.session_state:
+        st.session_state.database_url = os.environ.get("DATABASE_URL", "")
+    if "use_static_mode" not in st.session_state:
+        st.session_state.use_static_mode = os.environ.get("STATIC_SCHEMA_MODE", "true").lower() == "true"
+    
     # Sidebar
     with st.sidebar:
-        st.header("⚙️ Configuration")
+        st.header("🔌 Database Connection")
         
-        # Connection status
-        if DB_AVAILABLE:
-            st.success("✅ Database Connected")
-            db_url = os.environ.get("DATABASE_URL", "")
-            if db_url and "@" in db_url:
-                host = db_url.split("@")[1].split("/")[0]
-                st.caption(f"Host: {host}")
+        # Connection mode
+        connection_mode = st.radio(
+            "Connection Mode",
+            ["🌐 Live Database (Neon/PostgreSQL)", "📄 Static Mode (Demo)"],
+            index=1 if st.session_state.use_static_mode else 0
+        )
+        
+        st.session_state.use_static_mode = "Static" in connection_mode
+        
+        if not st.session_state.use_static_mode:
+            # Database URL input
+            st.markdown("### Connection String")
+            
+            # Check if .env has a URL
+            env_url = os.environ.get("DATABASE_URL", "")
+            
+            if env_url:
+                st.success("✅ Found in .env")
+                use_env = st.checkbox("Use .env connection", value=True)
+                if use_env:
+                    st.session_state.database_url = env_url
+                    if "@" in env_url:
+                        host = env_url.split("@")[1].split("/")[0]
+                        st.caption(f"Host: {host}")
+            
+            # Manual input
+            with st.expander("🔧 Enter Connection String"):
+                manual_url = st.text_input(
+                    "PostgreSQL URL",
+                    placeholder="postgresql://user:pass@host/dbname?sslmode=require",
+                    type="password"
+                )
+                if manual_url:
+                    st.session_state.database_url = manual_url
+                
+                st.caption("Example: `postgresql://user:password@ep-xxx.neon.tech/dbname?sslmode=require`")
+            
+            # Test connection
+            if st.button("🔌 Test Connection"):
+                conn, status = get_db_connection()
+                if conn:
+                    st.success(f"✅ {status}")
+                    conn.close()
+                else:
+                    st.error(f"❌ {status}")
         else:
-            st.warning("⚠️ Static Mode")
-            st.caption("Set DATABASE_URL to connect")
+            st.info("📄 Using static demo data")
+            st.caption("No database connection required")
         
         st.divider()
         
