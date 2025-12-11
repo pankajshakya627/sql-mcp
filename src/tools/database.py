@@ -1,6 +1,20 @@
 """
 Database connection and query tools for the MCP server.
-Supports both live database and static schema mode.
+
+This module provides database connectivity and query execution for the SQL MCP server.
+It supports both live PostgreSQL connections and a static schema mode for development.
+
+Exports:
+    DB_AVAILABLE (bool): Whether a live database connection is available
+    query_database(query, page, page_size): Execute SQL and return formatted table
+    query_database_raw(query): Execute SQL and return raw list of dicts
+    get_employees(department_id): Get employee list with optional filtering
+    get_departments(): Get all departments
+    get_database_schema(): Get database schema description
+
+Environment Variables:
+    DATABASE_URL: PostgreSQL connection string
+    STATIC_SCHEMA_MODE: Set to 'true' to use static schema without database
 """
 import os
 import logging
