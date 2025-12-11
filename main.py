@@ -200,6 +200,148 @@ def list_departments() -> str:
 
 
 # =============================================================================
+# DATABASE CONNECTION TOOLS (Real-time Database Access)
+# =============================================================================
+
+@mcp.tool()
+def db_status() -> str:
+    """Check database connection status and configuration."""
+    import os
+    db_url = os.environ.get("DATABASE_URL", "")
+    static_mode = os.environ.get("STATIC_SCHEMA_MODE", "true").lower() == "true"
+    
+    status = {
+        "static_mode": static_mode,
+        "database_configured": bool(db_url),
+        "database_host": db_url.split("@")[1].split("/")[0] if "@" in db_url else "Not configured"
+    }
+    
+    if not static_mode and db_url:
+        try:
+            from tools.database import get_connection
+            conn = get_connection()
+            conn.close()
+            status["connection_test"] = "✅ Connected successfully"
+        except Exception as e:
+            status["connection_test"] = f"❌ Connection failed: {e}"
+    else:
+        status["connection_test"] = "⚠️ Running in static mode"
+    
+    return str(status)
+
+
+@mcp.tool()
+def run_query(sql_query: str) -> str:
+    """
+    Execute a real-time SQL query against the connected database.
+    Only SELECT queries are allowed for safety.
+    Returns live results from the database.
+    """
+    if not sql_query.strip().upper().startswith("SELECT"):
+        return "❌ Error: Only SELECT queries are allowed for safety."
+    
+    try:
+        results = query_database(sql_query)
+        if isinstance(results, str) and "static schema mode" in results:
+            return results
+        
+        # Format results nicely
+        if isinstance(results, list) and len(results) > 0:
+            # Create markdown table
+            headers = list(results[0].keys()) if isinstance(results[0], dict) else []
+            if headers:
+                table = "| " + " | ".join(headers) + " |\n"
+                table += "| " + " | ".join(["---"] * len(headers)) + " |\n"
+                for row in results[:50]:  # Limit to 50 rows
+                    table += "| " + " | ".join(str(row.get(h, "")) for h in headers) + " |\n"
+                if len(results) > 50:
+                    table += f"\n*...and {len(results) - 50} more rows*"
+                return f"**Query Results ({len(results)} rows):**\n\n{table}"
+        return str(results)
+    except Exception as e:
+        return f"❌ Query error: {e}"
+
+
+@mcp.tool()
+def get_table_info(table_name: str) -> str:
+    """
+    Get detailed information about a specific table including columns, types, and row count.
+    """
+    try:
+        # Get column info
+        schema_query = f"""
+            SELECT column_name, data_type, is_nullable, column_default
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = '{table_name}'
+            ORDER BY ordinal_position;
+        """
+        columns = query_database(schema_query)
+        
+        if isinstance(columns, str) and "static schema mode" in columns:
+            return columns
+        
+        # Get row count
+        count_result = query_database(f"SELECT COUNT(*) as count FROM {table_name}")
+        row_count = count_result[0]['count'] if count_result else 0
+        
+        # Format output
+        output = f"# Table: {table_name}\n\n"
+        output += f"**Total rows:** {row_count}\n\n"
+        output += "## Columns\n\n"
+        output += "| Column | Type | Nullable | Default |\n"
+        output += "|--------|------|----------|--------|\n"
+        for col in columns:
+            output += f"| {col['column_name']} | {col['data_type']} | {col['is_nullable']} | {col.get('column_default', '-')} |\n"
+        
+        # Get sample data
+        sample = query_database(f"SELECT * FROM {table_name} LIMIT 5")
+        if sample and isinstance(sample, list):
+            output += f"\n## Sample Data (5 rows)\n\n"
+            headers = list(sample[0].keys())
+            output += "| " + " | ".join(headers) + " |\n"
+            output += "| " + " | ".join(["---"] * len(headers)) + " |\n"
+            for row in sample:
+                output += "| " + " | ".join(str(row.get(h, "")) for h in headers) + " |\n"
+        
+        return output
+    except Exception as e:
+        return f"❌ Error getting table info: {e}"
+
+
+@mcp.tool()
+def list_tables() -> str:
+    """List all tables in the database with row counts."""
+    try:
+        tables_query = """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+            ORDER BY table_name;
+        """
+        tables = query_database(tables_query)
+        
+        if isinstance(tables, str) and "static schema mode" in tables:
+            return tables
+        
+        output = "# Database Tables\n\n"
+        output += "| Table | Row Count |\n"
+        output += "|-------|----------|\n"
+        
+        for table in tables:
+            table_name = table['table_name']
+            try:
+                count_result = query_database(f"SELECT COUNT(*) as count FROM {table_name}")
+                count = count_result[0]['count'] if count_result else 0
+            except:
+                count = "?"
+            output += f"| {table_name} | {count} |\n"
+        
+        return output
+    except Exception as e:
+        return f"❌ Error listing tables: {e}"
+
+
+# =============================================================================
 # TEMPLATE TOOLS (Report Generators)
 # =============================================================================
 
