@@ -67,59 +67,107 @@ st.markdown("""
 
 def get_db_connection():
     """Get database connection with dynamic configuration."""
-    import psycopg
-    from psycopg.rows import dict_row
+    db_type = st.session_state.get("database_type", "static")
     
-    # Check session state first, then environment
-    db_url = st.session_state.get("database_url") or os.environ.get("DATABASE_URL", "")
+    if db_type == "sqlite":
+        try:
+            from tools.sqlite_local import get_sqlite_connection
+            conn = get_sqlite_connection()
+            return conn, "SQLite Connected"
+        except Exception as e:
+            return None, str(e)
     
-    if not db_url:
-        return None, "No connection string provided"
+    elif db_type == "postgresql":
+        try:
+            import psycopg
+            from psycopg.rows import dict_row
+            db_url = st.session_state.get("database_url") or os.environ.get("DATABASE_URL", "")
+            if not db_url:
+                return None, "No connection string provided"
+            conn = psycopg.connect(db_url, row_factory=dict_row)
+            return conn, "PostgreSQL Connected"
+        except Exception as e:
+            return None, str(e)
     
-    try:
-        conn = psycopg.connect(db_url, row_factory=dict_row)
-        return conn, "Connected"
-    except Exception as e:
-        return None, str(e)
+    return None, "Static mode - no live connection"
 
 
 def execute_query_dynamic(query: str):
-    """Execute query using dynamic connection."""
-    db_url = st.session_state.get("database_url") or os.environ.get("DATABASE_URL", "")
+    """Execute query using the selected database type."""
+    db_type = st.session_state.get("database_type", "static")
     
-    if not db_url or st.session_state.get("use_static_mode", False):
-        # Use static mode
+    # Static mode - use original functions
+    if db_type == "static":
         return query_database(query)
     
-    try:
-        import psycopg
-        from psycopg.rows import dict_row
+    # SQLite mode
+    if db_type == "sqlite":
+        try:
+            from tools.sqlite_local import query_sqlite
+            results = query_sqlite(query)
+            
+            if isinstance(results, str):  # Error message
+                return results
+            
+            if not results:
+                return "*No results found*"
+            
+            # Format as table
+            headers = list(results[0].keys())
+            table = "| " + " | ".join(str(h) for h in headers) + " |\n"
+            table += "| " + " | ".join(["---"] * len(headers)) + " |\n"
+            
+            for row in results[:50]:
+                values = [str(row.get(h, ""))[:40] for h in headers]
+                table += "| " + " | ".join(values) + " |\n"
+            
+            if len(results) > 50:
+                table += f"\n*Showing 50 of {len(results)} rows*"
+            else:
+                table += f"\n*Total: {len(results)} rows*"
+            
+            return table
+        except Exception as e:
+            return f"❌ SQLite Error: {e}"
+    
+    # PostgreSQL mode
+    if db_type == "postgresql":
+        db_url = st.session_state.get("database_url") or os.environ.get("DATABASE_URL", "")
         
-        with psycopg.connect(db_url, row_factory=dict_row) as conn:
-            with conn.cursor() as cur:
-                cur.execute(query)
-                results = cur.fetchall()
-                
-                if not results:
-                    return "*No results found*"
-                
-                # Format as table
-                headers = list(results[0].keys())
-                table = "| " + " | ".join(str(h) for h in headers) + " |\n"
-                table += "| " + " | ".join(["---"] * len(headers)) + " |\n"
-                
-                for row in results[:50]:  # Limit to 50 rows
-                    values = [str(row.get(h, ""))[:40] for h in headers]
-                    table += "| " + " | ".join(values) + " |\n"
-                
-                if len(results) > 50:
-                    table += f"\n*Showing 50 of {len(results)} rows*"
-                else:
-                    table += f"\n*Total: {len(results)} rows*"
-                
-                return table
-    except Exception as e:
-        return f"❌ Error: {e}"
+        if not db_url:
+            return "❌ No DATABASE_URL configured"
+        
+        try:
+            import psycopg
+            from psycopg.rows import dict_row
+            
+            with psycopg.connect(db_url, row_factory=dict_row) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(query)
+                    results = cur.fetchall()
+                    
+                    if not results:
+                        return "*No results found*"
+                    
+                    # Format as table
+                    headers = list(results[0].keys())
+                    table = "| " + " | ".join(str(h) for h in headers) + " |\n"
+                    table += "| " + " | ".join(["---"] * len(headers)) + " |\n"
+                    
+                    for row in results[:50]:
+                        values = [str(row.get(h, ""))[:40] for h in headers]
+                        table += "| " + " | ".join(values) + " |\n"
+                    
+                    if len(results) > 50:
+                        table += f"\n*Showing 50 of {len(results)} rows*"
+                    else:
+                        table += f"\n*Total: {len(results)} rows*"
+                    
+                    return table
+        except Exception as e:
+            return f"❌ PostgreSQL Error: {e}"
+    
+    return "❌ Unknown database type"
 
 
 def main():
@@ -311,7 +359,7 @@ def dashboard_page():
         st.markdown("### 🔍 Run Query")
         quick_query = st.text_input("Quick SQL", "SELECT * FROM employee LIMIT 5", key="dash_query")
         if st.button("▶️ Execute", key="dash_exec"):
-            result = query_database(quick_query)
+            result = execute_query_dynamic(quick_query)
             st.markdown(result)
     
     with col2:
@@ -325,7 +373,7 @@ def dashboard_page():
         st.markdown("### 📊 Quick View")
         table = st.selectbox("Select Table", ["employee", "department", "role", "project"], key="dash_table")
         if st.button("👁️ Preview", key="dash_preview"):
-            result = query_database(f"SELECT * FROM {table} LIMIT 5")
+            result = execute_query_dynamic(f"SELECT * FROM {table} LIMIT 5")
             st.markdown(result)
 
 
@@ -372,7 +420,7 @@ def query_page():
     
     if execute:
         with st.spinner("Executing query..."):
-            result = query_database(query)
+            result = execute_query_dynamic(query)
             st.markdown("### Results")
             st.markdown(result)
 
@@ -407,7 +455,7 @@ def ai_generator_page():
                 with st.spinner("Generating and executing..."):
                     sql = generate_sql_query(question)
                     st.code(sql, language="sql")
-                    result = query_database(sql)
+                    result = execute_query_dynamic(sql)
                     st.markdown("### Results")
                     st.markdown(result)
     
@@ -417,7 +465,7 @@ def ai_generator_page():
         st.code(st.session_state.generated_sql, language="sql")
         
         if st.button("▶️ Execute This Query"):
-            result = query_database(st.session_state.generated_sql)
+            result = execute_query_dynamic(st.session_state.generated_sql)
             st.markdown(result)
     
     st.divider()
@@ -493,7 +541,7 @@ def schema_page():
         preview_limit = st.slider("Number of rows", 5, 50, 10)
         
         if st.button("📊 Show Preview"):
-            result = query_database(f"SELECT * FROM {preview_table} LIMIT {preview_limit}")
+            result = execute_query_dynamic(f"SELECT * FROM {preview_table} LIMIT {preview_limit}")
             st.markdown(result)
 
 
@@ -603,7 +651,7 @@ def reports_page():
                     GROUP BY d.name ORDER BY Employees DESC
                 """
                 st.markdown("### By Department")
-                st.markdown(query_database(dept_query))
+                st.markdown(execute_query_dynamic(dept_query))
             
             elif "Department Overview" in report:
                 st.subheader("🏢 Department Overview")
@@ -616,7 +664,7 @@ def reports_page():
                     GROUP BY d.name
                 """
                 st.markdown("### Projects per Department")
-                st.markdown(query_database(proj_query))
+                st.markdown(execute_query_dynamic(proj_query))
             
             elif "Role Distribution" in report:
                 st.subheader("📊 Role Distribution")
@@ -625,12 +673,12 @@ def reports_page():
                     FROM role r LEFT JOIN employee e ON r.id = e.role_id
                     GROUP BY r.title, r.salary_range
                 """
-                st.markdown(query_database(role_query))
+                st.markdown(execute_query_dynamic(role_query))
             
             elif "Project Status" in report:
                 st.subheader("🗂️ Project Status")
                 proj_query = "SELECT name, description, status FROM project ORDER BY status"
-                st.markdown(query_database(proj_query))
+                st.markdown(execute_query_dynamic(proj_query))
             
             elif "Full Database" in report:
                 st.subheader("📋 Full Database Summary")
@@ -640,7 +688,7 @@ def reports_page():
                     SELECT table_name FROM information_schema.tables 
                     WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
                 """
-                st.markdown(query_database(tables_query))
+                st.markdown(execute_query_dynamic(tables_query))
                 
                 st.markdown("### Schema")
                 st.code(get_database_schema(), language="markdown")

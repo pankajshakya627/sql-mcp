@@ -86,6 +86,7 @@ jobs:
           repository: ${{ env.PR_AGENT_REPO }}
           ref: ${{ env.PR_AGENT_BRANCH }}
           path: pr-agent
+          token: ${{ secrets.PR_AGENT_PAT }}
       
       - name: 🐍 Set up Python
         uses: actions/setup-python@v6
