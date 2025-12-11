@@ -15,11 +15,16 @@ on:
         default: 'review'
         type: choice
         options:
-          - review
-          - describe
-          - improve
-          - changelog
-          - all
+          # 📝 Core Actions
+          - review        # Code Review - Comprehensive code review with issues and suggestions
+          - describe      # PR Description - Generate PR title and description
+          - improve       # Code Improvement - Suggest code improvements and refactoring
+          - ask           # PR Questions - Answer questions about the PR
+          - changelog     # Changelog - Generate changelog entry
+          # 🔀 Advanced Actions
+          - commit_pr     # Generate PR from Commit - Generate PR title & description from commit
+          - branch_compare # Compare Branches - Compare branches and generate PR
+          - all           # Run All - Execute all analysis actions
       provider:
         description: 'LLM Provider'
         required: false
@@ -31,16 +36,32 @@ on:
           - openai
           - anthropic
       model:
-        description: 'Model name'
+        description: 'Model name (select based on provider)'
         required: false
         default: 'llama-3.1-8b-instant'
         type: choice
         options:
+          # 🔥 Groq Models (Fast & Free)
           - llama-3.1-8b-instant
           - llama-3.3-70b-versatile
+          - mixtral-8x7b-32768
+          - gemma2-9b-it
+          # 🌐 OpenRouter Models
           - amazon/nova-2-lite-v1:free
+          - google/gemini-2.0-flash-exp:free
+          - x-ai/grok-beta
+          - meta-llama/llama-3.2-90b-vision-instruct:free
+          - qwen/qwen-2.5-72b-instruct:free
+          # 🤖 OpenAI Models
+          - gpt-4o
           - gpt-4o-mini
+          - gpt-4-turbo
+          - gpt-3.5-turbo
+          # 🧠 Anthropic Models
           - claude-sonnet-4-5-20250929
+          - claude-3-5-sonnet-20240620
+          - claude-3-haiku-20240307
+
 
 permissions:
   contents: read
@@ -65,6 +86,7 @@ jobs:
           repository: ${{ env.PR_AGENT_REPO }}
           ref: ${{ env.PR_AGENT_BRANCH }}
           path: pr-agent
+          token: ${{ secrets.PR_AGENT_PAT }}
       
       - name: 🐍 Set up Python
         uses: actions/setup-python@v6
@@ -123,9 +145,12 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: ${{ steps.pr.outputs.number }},
-              body: '❌ **PR-Agent encountered an error.**\n\nCheck [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.'
-            })
+            const prNumber = '${{ steps.pr.outputs.number }}';
+            if (prNumber && prNumber !== '') {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: parseInt(prNumber),
+                body: '❌ **PR-Agent encountered an error.**\n\nCheck [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.'
+              });
+            }

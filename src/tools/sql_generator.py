@@ -187,6 +187,7 @@ def validate_sql_syntax(sql_query: str) -> str:
 def get_query_optimization_tips(sql_query: str) -> str:
     """
     Get optimization suggestions for a SQL query.
+    Uses LLM for advanced optimization if available, falls back to rule-based tips.
     
     Args:
         sql_query: SQL query to analyze.
@@ -194,33 +195,121 @@ def get_query_optimization_tips(sql_query: str) -> str:
     Returns:
         Optimization suggestions.
     """
+    # Try LLM-based optimization first
+    api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    
+    if api_key:
+        try:
+            llm = get_llm()
+            schema = get_database_schema()
+            
+            prompt = f"""You are a PostgreSQL performance expert. Analyze this SQL query and provide detailed optimization suggestions.
+
+**Database Schema:**
+{schema}
+
+**Query to Optimize:**
+```sql
+{sql_query}
+```
+
+**Provide your analysis in this format:**
+
+## 🔍 Query Analysis
+- What the query does
+- Estimated complexity
+
+## ⚡ Performance Issues
+- List any performance problems found
+- Explain why they are problems
+
+## 💡 Optimization Recommendations
+1. **Indexing** - What indexes would help
+2. **Query Rewrite** - Alternative query if applicable
+3. **Best Practices** - General improvements
+
+## ✅ Optimized Query
+```sql
+-- Your optimized version of the query
+```
+
+Be specific, practical, and explain the "why" behind each recommendation.
+"""
+            
+            response = llm.invoke([HumanMessage(content=prompt)])
+            return response.content.strip()
+            
+        except Exception as e:
+            # Fall through to rule-based tips
+            pass
+    
+    # Fallback: Rule-based optimization tips
     tips = ["# Query Optimization Tips\n"]
     
     sql_upper = sql_query.upper()
     
     if "SELECT *" in sql_upper:
-        tips.append("💡 Avoid SELECT * - Specify only needed columns for better performance")
+        tips.append("💡 **Avoid SELECT ***")
+        tips.append("   - Specify only needed columns for better performance")
+        tips.append("   - Reduces data transfer and memory usage")
     
     if "JOIN" in sql_upper:
-        tips.append("✅ Using JOINs - Ensure foreign key columns are indexed")
-        tips.append("💡 Consider using table aliases (e.g., 'e' for employee) for readability")
+        tips.append("\n✅ **Using JOINs**")
+        tips.append("   - Ensure foreign key columns are indexed")
+        tips.append("   - Use table aliases (e.g., 'e' for employee) for readability")
+        tips.append("   - Consider JOIN order: smaller tables first")
     
     if "WHERE" in sql_upper:
-        tips.append("✅ Using WHERE clause - Good for filtering")
-        tips.append("💡 Ensure WHERE conditions use indexed columns when possible")
+        tips.append("\n✅ **Using WHERE clause**")
+        tips.append("   - Ensure WHERE conditions use indexed columns")
+        tips.append("   - Put most selective conditions first")
+    else:
+        tips.append("\n⚠️ **No WHERE clause**")
+        tips.append("   - Consider filtering to reduce result set")
     
     if any(agg in sql_upper for agg in ["COUNT", "SUM", "AVG", "MAX", "MIN"]):
-        tips.append("✅ Using aggregation functions")
+        tips.append("\n✅ **Using aggregation functions**")
         if "GROUP BY" not in sql_upper:
-            tips.append("⚠️  Aggregation without GROUP BY - Verify this is intentional")
+            tips.append("   ⚠️ Aggregation without GROUP BY - Verify this is intentional")
     
     if "LIMIT" not in sql_upper and "SELECT" in sql_upper:
-        tips.append("💡 Consider adding LIMIT for large result sets")
+        tips.append("\n💡 **Add LIMIT clause**")
+        tips.append("   - Prevents fetching too many rows")
+        tips.append("   - Example: LIMIT 100")
     
     if "DISTINCT" in sql_upper:
-        tips.append("⚠️  DISTINCT can be expensive - Use only if necessary")
+        tips.append("\n⚠️ **DISTINCT is expensive**")
+        tips.append("   - Only use if truly necessary")
+        tips.append("   - Consider GROUP BY as alternative")
+    
+    if "LIKE" in sql_upper or "ILIKE" in sql_upper:
+        tips.append("\n💡 **LIKE/ILIKE patterns**")
+        tips.append("   - Leading wildcard (%text) prevents index usage")
+        tips.append("   - Prefer: LIKE 'text%' over LIKE '%text'")
+    
+    if "ORDER BY" in sql_upper:
+        tips.append("\n✅ **Using ORDER BY**")
+        tips.append("   - Ensure sorted columns are indexed")
+        tips.append("   - Avoid sorting large result sets")
+    
+    if "SUBQUERY" in sql_upper or "SELECT" in sql_upper[sql_upper.find("FROM"):] if "FROM" in sql_upper else False:
+        tips.append("\n💡 **Subquery detected**")
+        tips.append("   - Consider using JOINs or CTEs instead")
+        tips.append("   - Subqueries can be less efficient")
     
     if len(tips) == 1:
         tips.append("\n✅ Query looks well-optimized!")
     
+    # Add index recommendations
+    tips.append("\n## 📊 Recommended Indexes")
+    tips.append("```sql")
+    tips.append("-- For employee queries")
+    tips.append("CREATE INDEX idx_employee_dept ON employee(department_id);")
+    tips.append("CREATE INDEX idx_employee_role ON employee(role_id);")
+    tips.append("-- For project queries")
+    tips.append("CREATE INDEX idx_project_dept ON project(department_id);")
+    tips.append("CREATE INDEX idx_project_status ON project(status);")
+    tips.append("```")
+    
     return "\n".join(tips)
+
