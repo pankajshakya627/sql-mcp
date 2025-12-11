@@ -3,7 +3,11 @@ Database connection and query tools for the MCP server.
 Supports both live database and static schema mode.
 """
 import os
+import logging
 from typing import Optional, List, Dict, Any
+
+# Configure logging
+logger = logging.getLogger("db-agent-mcp.database")
 
 # Check if we're in static schema mode (no live database)
 STATIC_SCHEMA_MODE = os.environ.get("STATIC_SCHEMA_MODE", "true").lower() == "true"
@@ -17,26 +21,31 @@ if not STATIC_SCHEMA_MODE and DATABASE_URL:
         import psycopg
         from psycopg.rows import dict_row
         DB_AVAILABLE = True
-        print(f"✅ Database configured: {DATABASE_URL[:30]}...")
+        logger.info(f"✅ Database configured: {DATABASE_URL[:30]}...")
     except ImportError:
         DB_AVAILABLE = False
-        print("❌ psycopg not installed")
+        logger.error("❌ psycopg not installed")
 else:
     DB_AVAILABLE = False
     if STATIC_SCHEMA_MODE:
-        print("ℹ️ Running in static schema mode")
+        logger.info("ℹ️ Running in static schema mode")
     elif not DATABASE_URL:
-        print("⚠️ DATABASE_URL not set")
+        logger.warning("⚠️ DATABASE_URL not set")
 
 
 def get_connection():
     """Get a database connection."""
     if not DB_AVAILABLE:
+        logger.warning("Connection requested but database not available")
         raise ConnectionError("Database not configured. Running in static schema mode.")
     
     try:
-        return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+        logger.debug("Establishing database connection...")
+        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+        logger.debug("Database connection established")
+        return conn
     except Exception as e:
+        logger.error(f"Database connection failed: {e}")
         raise ConnectionError(f"Database connection failed: {e}")
 
 

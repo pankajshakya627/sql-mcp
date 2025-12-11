@@ -5,7 +5,17 @@ Run with: python main.py
 """
 import os
 import sys
+import logging
+from datetime import datetime
 from typing import Annotated, TypedDict, List, Dict, Any
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s | %(levelname)s | %(name)s | %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger("db-agent-mcp")
 
 from fastmcp import FastMCP
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
@@ -26,6 +36,7 @@ from tools.database import (
     get_departments, 
     get_database_schema
 )
+from tools.session_store import session_store
 from tools.sql_generator import (
     generate_sql_query as gen_sql,
     validate_sql_syntax,
@@ -211,35 +222,175 @@ def ask_database(question: str) -> str:
 @mcp.tool()
 def generate_sql_query(question: str) -> str:
     """Generate a SQL query without executing it."""
-    return gen_sql(question)
+    logger.info(f"🔧 Tool: generate_sql_query | Question: {question[:50]}...")
+    result = gen_sql(question)
+    logger.info(f"✅ generate_sql_query completed")
+    return result
 
 
 @mcp.tool()
 def execute_sql(query: str) -> str:
     """Execute a raw SQL SELECT query."""
+    logger.info(f"🔧 Tool: execute_sql | Query: {query[:50]}...")
     try:
         results = query_database(query)
+        logger.info(f"✅ execute_sql completed")
         return str(results)
     except Exception as e:
+        logger.error(f"❌ execute_sql error: {e}")
         return f"Error executing SQL: {e}"
 
 
 @mcp.tool()
 def get_schema() -> str:
     """Get the database schema."""
+    logger.info("🔧 Tool: get_schema")
     return get_database_schema()
 
 
 @mcp.tool()
 def validate_sql(query: str) -> str:
     """Validate SQL query syntax."""
+    logger.info(f"🔧 Tool: validate_sql | Query: {query[:50]}...")
     return validate_sql_syntax(query)
 
 
 @mcp.tool()
 def get_optimization_tips(query: str) -> str:
     """Get query optimization tips."""
+    logger.info(f"🔧 Tool: get_optimization_tips | Query: {query[:50]}...")
     return get_query_optimization_tips(query)
+
+
+# =============================================================================
+# PAGINATION TOOLS (For Large Result Sets)
+# =============================================================================
+
+@mcp.tool()
+def paginated_query(sql_query: str, page_size: int = 20) -> str:
+    """
+    Execute a query and store results for pagination.
+    Returns first page and a session_id for navigating results.
+    
+    Args:
+        sql_query: SQL SELECT query to execute
+        page_size: Rows per page (default 20, max 50)
+    """
+    logger.info(f"📄 Tool: paginated_query | Query: {sql_query[:50]}... | PageSize: {page_size}")
+    
+    # Limit page size
+    page_size = min(max(page_size, 10), 50)
+    
+    # Get raw results
+    results = query_database_raw(sql_query)
+    
+    if results is None:
+        return "⚠️ Database not available. Running in static mode."
+    
+    if isinstance(results, str):
+        return results
+    
+    if not results:
+        return "*No results found*"
+    
+    # Create session
+    session = session_store.create_session(sql_query, results, page_size)
+    page_data = session.get_page(1)
+    
+    # Format response
+    output = format_page_output(page_data)
+    logger.info(f"✅ paginated_query completed | Session: {session.session_id} | Total: {session.total_rows} rows")
+    
+    return output
+
+
+@mcp.tool()
+def next_page(session_id: str) -> str:
+    """
+    Get the next page of results for a paginated query.
+    Use the session_id from a previous paginated_query call.
+    """
+    logger.info(f"📄 Tool: next_page | Session: {session_id}")
+    
+    session = session_store.get_session(session_id)
+    if not session:
+        return f"❌ Session '{session_id}' not found or expired. Run a new paginated_query."
+    
+    page_data = session.next_page()
+    return format_page_output(page_data)
+
+
+@mcp.tool()
+def prev_page(session_id: str) -> str:
+    """
+    Get the previous page of results for a paginated query.
+    Use the session_id from a previous paginated_query call.
+    """
+    logger.info(f"📄 Tool: prev_page | Session: {session_id}")
+    
+    session = session_store.get_session(session_id)
+    if not session:
+        return f"❌ Session '{session_id}' not found or expired. Run a new paginated_query."
+    
+    page_data = session.prev_page()
+    return format_page_output(page_data)
+
+
+@mcp.tool()
+def goto_page(session_id: str, page_number: int) -> str:
+    """
+    Go to a specific page of results.
+    Use the session_id from a previous paginated_query call.
+    """
+    logger.info(f"📄 Tool: goto_page | Session: {session_id} | Page: {page_number}")
+    
+    session = session_store.get_session(session_id)
+    if not session:
+        return f"❌ Session '{session_id}' not found or expired. Run a new paginated_query."
+    
+    page_data = session.get_page(page_number)
+    return format_page_output(page_data)
+
+
+@mcp.tool()
+def clear_session(session_id: str) -> str:
+    """Clear a pagination session and free memory."""
+    logger.info(f"🗑️ Tool: clear_session | Session: {session_id}")
+    
+    if session_store.delete_session(session_id):
+        return f"✅ Session '{session_id}' cleared."
+    return f"⚠️ Session '{session_id}' not found."
+
+
+def format_page_output(page_data: dict) -> str:
+    """Format page data as a nice table with navigation info."""
+    data = page_data["data"]
+    
+    if not data:
+        return "*No data on this page*"
+    
+    # Build table
+    headers = list(data[0].keys())
+    table = "| " + " | ".join(str(h) for h in headers) + " |\n"
+    table += "| " + " | ".join(["---"] * len(headers)) + " |\n"
+    
+    for row in data:
+        values = [str(row.get(h, ""))[:40] for h in headers]  # Truncate long values
+        table += "| " + " | ".join(values) + " |\n"
+    
+    # Navigation info
+    nav = f"\n**Page {page_data['page']} of {page_data['total_pages']}** | "
+    nav += f"Showing rows {page_data['showing']} of {page_data['total_rows']}\n"
+    nav += f"📌 Session ID: `{page_data['session_id']}`\n"
+    
+    if page_data['has_prev'] or page_data['has_next']:
+        nav += "Navigation: "
+        if page_data['has_prev']:
+            nav += f"⬅️ Use `prev_page(\"{page_data['session_id']}\")` | "
+        if page_data['has_next']:
+            nav += f"➡️ Use `next_page(\"{page_data['session_id']}\")`"
+    
+    return table + nav
 
 
 @mcp.tool()
