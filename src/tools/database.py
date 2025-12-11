@@ -8,22 +8,25 @@ from typing import Optional, List, Dict, Any
 # Check if we're in static schema mode (no live database)
 STATIC_SCHEMA_MODE = os.environ.get("STATIC_SCHEMA_MODE", "true").lower() == "true"
 
-# Try to import psycopg only if not in static mode
-if not STATIC_SCHEMA_MODE:
+# Get database URL from environment
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+
+# Try to import psycopg only if not in static mode and we have a DB URL
+if not STATIC_SCHEMA_MODE and DATABASE_URL:
     try:
         import psycopg
         from psycopg.rows import dict_row
         DB_AVAILABLE = True
+        print(f"✅ Database configured: {DATABASE_URL[:30]}...")
     except ImportError:
         DB_AVAILABLE = False
+        print("❌ psycopg not installed")
 else:
     DB_AVAILABLE = False
-
-# Database connection string
-DB_CONN_STRING = os.environ.get(
-    "DATABASE_URL",
-    "dbname=org_db user=pankajshakya host=localhost port=5432"
-)
+    if STATIC_SCHEMA_MODE:
+        print("ℹ️ Running in static schema mode")
+    elif not DATABASE_URL:
+        print("⚠️ DATABASE_URL not set")
 
 
 def get_connection():
@@ -32,7 +35,7 @@ def get_connection():
         raise ConnectionError("Database not configured. Running in static schema mode.")
     
     try:
-        return psycopg.connect(DB_CONN_STRING, row_factory=dict_row)
+        return psycopg.connect(DATABASE_URL, row_factory=dict_row)
     except Exception as e:
         raise ConnectionError(f"Database connection failed: {e}")
 
