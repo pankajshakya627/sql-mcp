@@ -481,6 +481,9 @@ def get_table_info(table_name: str) -> str:
     """
     Get detailed information about a specific table including columns, types, and row count.
     """
+    # SECURITY: Whitelist of allowed table names to prevent SQL injection
+    ALLOWED_TABLES = {"department", "role", "employee", "project"}
+    
     # Static mode fallback
     static_schema = {
         "department": ["id (int)", "name (varchar)", "location (varchar)"],
@@ -489,12 +492,21 @@ def get_table_info(table_name: str) -> str:
         "project": ["id (int)", "name (varchar)", "description (text)", "department_id (int)", "status (varchar)"]
     }
     
+    # Sanitize table name - only allow alphanumeric and underscore
+    sanitized_name = table_name.lower().strip()
+    if not sanitized_name.replace("_", "").isalnum():
+        return "❌ Error: Invalid table name. Only alphanumeric characters and underscores allowed."
+    
+    # Check against whitelist
+    if sanitized_name not in ALLOWED_TABLES:
+        return f"❌ Error: Table '{table_name}' not found. Available tables: {', '.join(sorted(ALLOWED_TABLES))}"
+    
     try:
-        # Get column info
+        # Get column info - using sanitized name
         schema_query = f"""
             SELECT column_name, data_type, is_nullable
             FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = '{table_name}'
+            WHERE table_schema = 'public' AND table_name = '{sanitized_name}'
             ORDER BY ordinal_position
             LIMIT 20;
         """
@@ -502,20 +514,20 @@ def get_table_info(table_name: str) -> str:
         
         if columns is None:
             # Return static schema info
-            if table_name.lower() in static_schema:
-                output = f"# Table: {table_name} (Static Mode)\n\n"
+            if sanitized_name in static_schema:
+                output = f"# Table: {sanitized_name} (Static Mode)\n\n"
                 output += "| Column |\n|--------|\n"
-                for col in static_schema[table_name.lower()]:
+                for col in static_schema[sanitized_name]:
                     output += f"| {col} |\n"
                 return output
             return f"⚠️ Table '{table_name}' not found in static schema."
         
-        # Get row count
-        count_result = query_database_raw(f"SELECT COUNT(*) as count FROM {table_name}")
+        # Get row count - using sanitized name
+        count_result = query_database_raw(f"SELECT COUNT(*) as count FROM {sanitized_name}")
         row_count = count_result[0]['count'] if count_result else 0
         
         # Format output (keep it concise)
-        output = f"# Table: {table_name}\n\n"
+        output = f"# Table: {sanitized_name}\n\n"
         output += f"**Rows:** {row_count}\n\n"
         output += "| Column | Type | Nullable |\n|--------|------|----------|\n"
         for col in columns:
@@ -523,6 +535,7 @@ def get_table_info(table_name: str) -> str:
         
         return output
     except Exception as e:
+        logger.error(f"get_table_info error: {e}")
         return f"❌ Error: {e}"
 
 

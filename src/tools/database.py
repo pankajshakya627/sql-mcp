@@ -82,19 +82,21 @@ def format_as_table(results: list, max_rows: int = 100) -> str:
     return table
 
 
-def query_database(query: str, page: int = 1, page_size: int = 100):
+def query_database(query: str, page: int = 1, page_size: int = 50):
     """
     Execute a read-only SQL query against the organization database.
     
     Args:
         query: SQL SELECT query to execute
         page: Page number for pagination (1-indexed)
-        page_size: Number of rows per page (max 500)
+        page_size: Number of rows per page (max 50 for smooth ChatGPT performance)
     
     Returns:
         - Formatted table string when database is available
         - Error message when not configured or on error
     """
+    MAX_ROWS = 50  # Hard limit for smooth ChatGPT Web performance
+    
     if not DB_AVAILABLE:
         return ("⚠️ Database not configured - running in static schema mode.\n\n"
                 "Use 'generate_sql_query' to create SQL, or 'get_schema' "
@@ -104,38 +106,39 @@ def query_database(query: str, page: int = 1, page_size: int = 100):
     if not query.strip().upper().startswith("SELECT"):
         return "Error: Only SELECT queries are allowed."
     
-    # Limit page size
-    page_size = min(page_size, 500)
+    # Enforce max 50 rows limit
+    page_size = min(page_size, MAX_ROWS)
     offset = (page - 1) * page_size
 
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 # First get total count (if query doesn't already have LIMIT)
+                total = None
                 if "LIMIT" not in query.upper():
                     count_query = f"SELECT COUNT(*) as total FROM ({query}) subq"
                     cur.execute(count_query)
                     total = cur.fetchone()['total']
                     
-                    # Add pagination to query
-                    paginated_query = f"{query} LIMIT {page_size} OFFSET {offset}"
+                    # Add LIMIT to query for performance
+                    paginated_query = f"{query} LIMIT {MAX_ROWS} OFFSET {offset}"
                     cur.execute(paginated_query)
                 else:
                     cur.execute(query)
-                    total = None
                 
                 results = cur.fetchall()
                 
                 # Format as table
-                output = format_as_table(results, max_rows=page_size)
+                output = format_as_table(results, max_rows=MAX_ROWS)
                 
-                # Add pagination info
-                if total and total > page_size:
-                    total_pages = (total + page_size - 1) // page_size
-                    output += f"\n📄 Page {page} of {total_pages} (Total: {total} rows)"
+                # Add pagination message if more data exists
+                if total and total > MAX_ROWS:
+                    output += f"\n\n📊 **Showing {min(MAX_ROWS, len(results))} of {total} total rows.**"
+                    output += "\n� *For more results, use `paginated_query` tool which supports page navigation.*"
                 
                 return output
     except Exception as e:
+        logger.error(f"Query error: {e}")
         return f"Error executing query: {e}"
 
 
@@ -174,14 +177,27 @@ def get_employees(department_id: Optional[int] = None) -> str:
 
 *This is sample data. Connect a live database for real results.*"""
     
-    query = """
-        SELECT e.id, e.name, e.email, d.name as department, r.title as role
-        FROM employee e
-        JOIN department d ON e.department_id = d.id
-        JOIN role r ON e.role_id = r.id
-    """
+    # Build query safely - department_id is validated as int by type hint
     if department_id is not None:
-        query += f" WHERE e.department_id = {department_id}"
+        # Validate that department_id is actually an integer
+        if not isinstance(department_id, int) or department_id < 0:
+            return "Error: Invalid department_id. Must be a positive integer."
+        query = f"""
+            SELECT e.id, e.name, e.email, d.name as department, r.title as role
+            FROM employee e
+            JOIN department d ON e.department_id = d.id
+            JOIN role r ON e.role_id = r.id
+            WHERE e.department_id = {int(department_id)}
+            LIMIT 50
+        """
+    else:
+        query = """
+            SELECT e.id, e.name, e.email, d.name as department, r.title as role
+            FROM employee e
+            JOIN department d ON e.department_id = d.id
+            JOIN role r ON e.role_id = r.id
+            LIMIT 50
+        """
     
     return query_database(query)
 
