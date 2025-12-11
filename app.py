@@ -129,8 +129,14 @@ def main():
     # Initialize session state
     if "database_url" not in st.session_state:
         st.session_state.database_url = os.environ.get("DATABASE_URL", "")
-    if "use_static_mode" not in st.session_state:
-        st.session_state.use_static_mode = os.environ.get("STATIC_SCHEMA_MODE", "true").lower() == "true"
+    if "database_type" not in st.session_state:
+        # Check environment for database type
+        if os.environ.get("DATABASE_TYPE", "").lower() == "sqlite":
+            st.session_state.database_type = "sqlite"
+        elif os.environ.get("DATABASE_URL"):
+            st.session_state.database_type = "postgresql"
+        else:
+            st.session_state.database_type = "static"
     
     # Sidebar
     with st.sidebar:
@@ -139,15 +145,25 @@ def main():
         # Connection mode
         connection_mode = st.radio(
             "Connection Mode",
-            ["🌐 Live Database (Neon/PostgreSQL)", "📄 Static Mode (Demo)"],
-            index=1 if st.session_state.use_static_mode else 0
+            [
+                "🌐 PostgreSQL (Neon/Cloud)",
+                "💾 SQLite (Local File)",
+                "📄 Static Mode (Demo)"
+            ],
+            index={"postgresql": 0, "sqlite": 1, "static": 2}.get(st.session_state.database_type, 2)
         )
         
-        st.session_state.use_static_mode = "Static" in connection_mode
+        # Update database type based on selection
+        if "PostgreSQL" in connection_mode:
+            st.session_state.database_type = "postgresql"
+        elif "SQLite" in connection_mode:
+            st.session_state.database_type = "sqlite"
+        else:
+            st.session_state.database_type = "static"
         
-        if not st.session_state.use_static_mode:
-            # Database URL input
-            st.markdown("### Connection String")
+        # PostgreSQL configuration
+        if st.session_state.database_type == "postgresql":
+            st.markdown("### 🌐 PostgreSQL Connection")
             
             # Check if .env has a URL
             env_url = os.environ.get("DATABASE_URL", "")
@@ -181,6 +197,38 @@ def main():
                     conn.close()
                 else:
                     st.error(f"❌ {status}")
+        
+        # SQLite configuration
+        elif st.session_state.database_type == "sqlite":
+            st.markdown("### 💾 SQLite Local Database")
+            
+            try:
+                from tools.sqlite_local import get_sqlite_connection, sqlite_db_exists, get_sqlite_path
+                
+                db_path = get_sqlite_path()
+                
+                if sqlite_db_exists():
+                    st.success("✅ Database exists")
+                    st.caption(f"Path: `{db_path}`")
+                else:
+                    st.info("📦 Database will be created on first use")
+                    st.caption(f"Path: `{db_path}`")
+                
+                if st.button("🔌 Initialize/Test SQLite"):
+                    try:
+                        conn = get_sqlite_connection()
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT COUNT(*) FROM employee")
+                        count = cursor.fetchone()[0]
+                        conn.close()
+                        st.success(f"✅ Connected! {count} employees found")
+                    except Exception as e:
+                        st.error(f"❌ Error: {e}")
+                        
+            except ImportError:
+                st.error("❌ SQLite module not found")
+        
+        # Static mode
         else:
             st.info("📄 Using static demo data")
             st.caption("No database connection required")
