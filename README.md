@@ -283,7 +283,6 @@ graph TB
     end
 
     subgraph "Data Layer"
-        % Using the database symbol for Neon
         Neon([☁️ Neon PostgreSQL])
         Static[📄 Static Schema Mode]
     end
@@ -297,12 +296,12 @@ graph TB
     Tools --> Sessions
     Tools --> Neon
     Tools --> Static
-    
+
     % --- Styling for Clarity ---
     style "Client Layer" fill:#aff,stroke:#333,stroke-width:2px
     style "MCP Server" fill:#f9f,stroke:#333,stroke-width:2px
     style "Data Layer" fill:#faa,stroke:#333,stroke-width:2px
-    
+
     % Optional: Style the Neon node as a cylinder (database)
     style Neon fill:#cff,shape:cylinder
 ```
