@@ -270,24 +270,23 @@ docker-compose up
 ```mermaid
 graph TB
     subgraph "Client Layer"
-        ChatGPT[💬 ChatGPT]
-        Claude[🤖 Claude Desktop]
-        Inspector[🔍 MCP Inspector]
+        ChatGPT[ChatGPT]
+        Claude[Claude Desktop]
+        Inspector[MCP Inspector]
     end
 
     subgraph "MCP Server"
-        FastMCP[🔌 FastMCP Server]
-        Tools[🛠️ 20+ MCP Tools]
-        Resources[📚 MCP Resources]
-        Sessions[💾 Session Store]
+        FastMCP[FastMCP Server]
+        Tools[20+ MCP Tools]
+        Resources[MCP Resources]
+        Sessions[Session Store]
     end
 
     subgraph "Data Layer"
-        Neon([☁️ Neon PostgreSQL])
-        Static[📄 Static Schema Mode]
+        Neon[(Neon PostgreSQL)]
+        Static[Static Schema Mode]
     end
 
-    % --- Connections ---
     ChatGPT --> FastMCP
     Claude --> FastMCP
     Inspector --> FastMCP
@@ -296,14 +295,6 @@ graph TB
     Tools --> Sessions
     Tools --> Neon
     Tools --> Static
-
-    % --- Styling for Clarity ---
-    style "Client Layer" fill:#aff,stroke:#333,stroke-width:2px
-    style "MCP Server" fill:#f9f,stroke:#333,stroke-width:2px
-    style "Data Layer" fill:#faa,stroke:#333,stroke-width:2px
-
-    % Optional: Style the Neon node as a cylinder (database)
-    style Neon fill:#cff,shape:cylinder
 ```
 
 ---
