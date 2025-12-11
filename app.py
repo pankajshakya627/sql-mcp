@@ -1,6 +1,7 @@
 """
 🗄️ SQL MCP Server - Streamlit UI
 Interactive web interface for database queries and exploration.
+Exposes ALL functionality from main.py MCP server.
 
 Run with: streamlit run app.py
 """
@@ -15,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src
 # Load environment variables
 load_dotenv()
 
-# Import tools
+# Import ALL tools from database module
 from tools.database import (
     query_database,
     query_database_raw,
@@ -24,7 +25,11 @@ from tools.database import (
     get_database_schema,
     DB_AVAILABLE
 )
-from tools.sql_generator import generate_sql_query, validate_sql_syntax
+from tools.sql_generator import (
+    generate_sql_query,
+    validate_sql_syntax,
+    get_query_optimization_tips
+)
 from tools.session_store import session_store
 
 # Page configuration
@@ -38,9 +43,6 @@ st.set_page_config(
 # Custom CSS
 st.markdown("""
 <style>
-    .stApp {
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-    }
     .main-header {
         font-size: 2.5rem;
         background: linear-gradient(90deg, #00d2ff, #3a7bd5);
@@ -49,25 +51,15 @@ st.markdown("""
         font-weight: bold;
         margin-bottom: 1rem;
     }
-    .status-connected {
-        background: #10b981;
-        color: white;
-        padding: 0.5rem 1rem;
-        border-radius: 20px;
-        font-size: 0.9rem;
-    }
-    .status-disconnected {
-        background: #ef4444;
-        color: white;
-        padding: 0.5rem 1rem;
-        border-radius: 20px;
-        font-size: 0.9rem;
-    }
-    .sql-box {
-        background: #1e1e1e;
+    .tool-card {
+        background: rgba(255,255,255,0.05);
         border-radius: 10px;
         padding: 1rem;
-        font-family: 'Fira Code', monospace;
+        margin: 0.5rem 0;
+        border: 1px solid rgba(255,255,255,0.1);
+    }
+    .stButton>button {
+        width: 100%;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -85,71 +77,146 @@ def main():
         if DB_AVAILABLE:
             st.success("✅ Database Connected")
             db_url = os.environ.get("DATABASE_URL", "")
-            if db_url:
-                host = db_url.split("@")[1].split("/")[0] if "@" in db_url else "Local"
+            if db_url and "@" in db_url:
+                host = db_url.split("@")[1].split("/")[0]
                 st.caption(f"Host: {host}")
         else:
-            st.warning("⚠️ Static Mode (No Database)")
+            st.warning("⚠️ Static Mode")
             st.caption("Set DATABASE_URL to connect")
         
         st.divider()
         
-        # Navigation using selectbox for better visibility
+        # Navigation
         st.header("🧭 Navigation")
         page = st.selectbox(
             "Select Page",
             options=[
+                "🏠 Dashboard",
                 "🔍 Query Database",
-                "📊 Explore Schema", 
                 "🤖 AI SQL Generator",
-                "📄 Paginated Results"
+                "📊 Schema Explorer",
+                "📄 Paginated Results",
+                "📈 Data Reports",
+                "🛠️ Tools & Utilities",
+                "⚙️ Database Status"
             ],
             index=0
         )
-        
-        st.divider()
-        
-        # Quick links
-        st.header("🔗 Quick Actions")
-        if st.button("📋 View Schema", use_container_width=True):
-            st.session_state.page = "📊 Explore Schema"
-            st.rerun()
-        if st.button("🚀 Run Query", use_container_width=True):
-            st.session_state.page = "🔍 Query Database"
-            st.rerun()
     
-    # Main content based on page
-    if "Query Database" in page:
+    # Route to page
+    if "Dashboard" in page:
+        dashboard_page()
+    elif "Query Database" in page:
         query_page()
-    elif "Explore Schema" in page:
-        schema_page()
     elif "AI SQL Generator" in page:
         ai_generator_page()
+    elif "Schema Explorer" in page:
+        schema_page()
     elif "Paginated Results" in page:
         pagination_page()
+    elif "Data Reports" in page:
+        reports_page()
+    elif "Tools & Utilities" in page:
+        tools_page()
+    elif "Database Status" in page:
+        status_page()
+
+
+def dashboard_page():
+    """Dashboard with quick access to all features."""
+    st.header("🏠 Dashboard")
+    
+    # Quick stats
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("🔌 Database", "Connected" if DB_AVAILABLE else "Static Mode")
+    
+    with col2:
+        if DB_AVAILABLE:
+            tables = query_database_raw("SELECT COUNT(*) as c FROM information_schema.tables WHERE table_schema='public'")
+            count = tables[0]['c'] if tables else 4
+        else:
+            count = 4
+        st.metric("📋 Tables", count)
+    
+    with col3:
+        if DB_AVAILABLE:
+            emp = query_database_raw("SELECT COUNT(*) as c FROM employee")
+            emp_count = emp[0]['c'] if emp else "N/A"
+        else:
+            emp_count = "Sample"
+        st.metric("👥 Employees", emp_count)
+    
+    with col4:
+        st.metric("🔧 Tools", "20+")
+    
+    st.divider()
+    
+    # Quick actions
+    st.subheader("⚡ Quick Actions")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("### 🔍 Run Query")
+        quick_query = st.text_input("Quick SQL", "SELECT * FROM employee LIMIT 5", key="dash_query")
+        if st.button("▶️ Execute", key="dash_exec"):
+            result = query_database(quick_query)
+            st.markdown(result)
+    
+    with col2:
+        st.markdown("### 🤖 Ask AI")
+        question = st.text_input("Ask in English", "How many employees?", key="dash_ai")
+        if st.button("🪄 Generate SQL", key="dash_gen"):
+            sql = generate_sql_query(question)
+            st.code(sql, language="sql")
+    
+    with col3:
+        st.markdown("### 📊 Quick View")
+        table = st.selectbox("Select Table", ["employee", "department", "role", "project"], key="dash_table")
+        if st.button("👁️ Preview", key="dash_preview"):
+            result = query_database(f"SELECT * FROM {table} LIMIT 5")
+            st.markdown(result)
 
 
 def query_page():
     """SQL Query execution page."""
     st.header("🔍 Execute SQL Query")
     
+    # Sample queries
+    with st.expander("📚 Sample Queries"):
+        samples = {
+            "All Employees": "SELECT * FROM employee LIMIT 50",
+            "Employee Count by Dept": "SELECT d.name, COUNT(*) as count FROM employee e JOIN department d ON e.department_id = d.id GROUP BY d.name",
+            "Active Projects": "SELECT * FROM project WHERE status = 'Active'",
+            "Employees with Roles": "SELECT e.name, r.title FROM employee e JOIN role r ON e.role_id = r.id"
+        }
+        for name, sql in samples.items():
+            if st.button(f"📝 {name}", key=f"sample_{name}"):
+                st.session_state.query = sql
+    
     # Query input
     query = st.text_area(
         "Enter SQL Query",
-        value="SELECT * FROM employee LIMIT 10",
-        height=150,
-        placeholder="Enter your SELECT query here..."
+        value=st.session_state.get("query", "SELECT * FROM employee LIMIT 10"),
+        height=150
     )
     
-    col1, col2 = st.columns([1, 4])
+    col1, col2, col3 = st.columns([1, 1, 2])
+    
     with col1:
         execute = st.button("▶️ Execute", type="primary", use_container_width=True)
     with col2:
-        validate = st.button("✅ Validate Syntax", use_container_width=True)
+        validate = st.button("✅ Validate", use_container_width=True)
+    with col3:
+        if st.button("💡 Get Tips", use_container_width=True):
+            tips = get_query_optimization_tips(query)
+            st.info(tips)
     
     if validate:
         result = validate_sql_syntax(query)
-        if "valid" in result.lower():
+        if "valid" in result.lower() or "✅" in result:
             st.success(result)
         else:
             st.error(result)
@@ -161,24 +228,86 @@ def query_page():
             st.markdown(result)
 
 
-def schema_page():
-    """Database schema exploration page."""
-    st.header("📊 Database Schema")
+def ai_generator_page():
+    """AI-powered SQL generation page."""
+    st.header("🤖 AI SQL Generator")
     
-    col1, col2 = st.columns(2)
+    st.info("💡 Describe what you want in natural language, and AI will generate the SQL query.")
+    
+    # Question input
+    question = st.text_area(
+        "What do you want to know?",
+        placeholder="e.g., Show me all employees in the Engineering department who were hired this year",
+        height=100
+    )
+    
+    col1, col2 = st.columns([1, 1])
     
     with col1:
-        st.subheader("📋 Schema Overview")
+        if st.button("🪄 Generate SQL", type="primary", use_container_width=True):
+            if question:
+                with st.spinner("Generating SQL..."):
+                    result = generate_sql_query(question)
+                    st.session_state.generated_sql = result
+            else:
+                st.warning("Please enter a question first")
+    
+    with col2:
+        if st.button("▶️ Generate & Execute", use_container_width=True):
+            if question:
+                with st.spinner("Generating and executing..."):
+                    sql = generate_sql_query(question)
+                    st.code(sql, language="sql")
+                    result = query_database(sql)
+                    st.markdown("### Results")
+                    st.markdown(result)
+    
+    # Show generated SQL
+    if "generated_sql" in st.session_state:
+        st.subheader("Generated SQL")
+        st.code(st.session_state.generated_sql, language="sql")
+        
+        if st.button("▶️ Execute This Query"):
+            result = query_database(st.session_state.generated_sql)
+            st.markdown(result)
+    
+    st.divider()
+    
+    # Example questions
+    st.subheader("💡 Example Questions")
+    examples = [
+        "How many employees are in each department?",
+        "List all active projects with their departments",
+        "Show employees with their roles and salaries",
+        "Find departments with more than 5 employees",
+        "Get the latest hired employees"
+    ]
+    
+    cols = st.columns(2)
+    for i, example in enumerate(examples):
+        with cols[i % 2]:
+            if st.button(f"📝 {example}", key=f"ex_{i}"):
+                st.session_state.example_question = example
+                st.rerun()
+
+
+def schema_page():
+    """Database schema exploration page."""
+    st.header("📊 Schema Explorer")
+    
+    tab1, tab2, tab3 = st.tabs(["📋 Schema Overview", "🔎 Table Details", "👀 Data Preview"])
+    
+    with tab1:
+        st.subheader("Database Schema")
         schema = get_database_schema()
         st.code(schema, language="markdown")
     
-    with col2:
-        st.subheader("🔎 Table Details")
+    with tab2:
+        st.subheader("Table Information")
         
-        table = st.selectbox(
-            "Select Table",
-            ["department", "role", "employee", "project"]
-        )
+        # Table selection
+        ALLOWED_TABLES = ["department", "role", "employee", "project"]
+        table = st.selectbox("Select Table", ALLOWED_TABLES)
         
         if st.button("🔍 Get Table Info"):
             with st.spinner("Fetching table info..."):
@@ -198,73 +327,25 @@ def schema_page():
                     if count_result:
                         st.metric("Total Rows", count_result[0]['count'])
                 else:
-                    st.info("Table info not available in static mode")
+                    st.info("Using static schema (database not connected)")
+                    static_schema = {
+                        "department": ["id (int)", "name (varchar)", "location (varchar)"],
+                        "role": ["id (int)", "title (varchar)", "salary_range (varchar)"],
+                        "employee": ["id (int)", "name (varchar)", "email (varchar)", "department_id (int)", "role_id (int)"],
+                        "project": ["id (int)", "name (varchar)", "description (text)", "department_id (int)"]
+                    }
+                    for col in static_schema.get(table, []):
+                        st.write(f"• {col}")
     
-    st.divider()
-    
-    # Quick data preview
-    st.subheader("👀 Quick Data Preview")
-    
-    preview_table = st.selectbox(
-        "Select table to preview",
-        ["employee", "department", "role", "project"],
-        key="preview_table"
-    )
-    
-    if st.button("📊 Show Preview"):
-        if preview_table == "employee":
-            st.markdown(get_employees())
-        elif preview_table == "department":
-            st.markdown(get_departments())
-        else:
-            result = query_database(f"SELECT * FROM {preview_table} LIMIT 10")
+    with tab3:
+        st.subheader("Data Preview")
+        
+        preview_table = st.selectbox("Select table to preview", ALLOWED_TABLES, key="preview_sel")
+        preview_limit = st.slider("Number of rows", 5, 50, 10)
+        
+        if st.button("📊 Show Preview"):
+            result = query_database(f"SELECT * FROM {preview_table} LIMIT {preview_limit}")
             st.markdown(result)
-
-
-def ai_generator_page():
-    """AI-powered SQL generation page."""
-    st.header("🤖 AI SQL Generator")
-    
-    st.info("💡 Describe what you want in natural language, and AI will generate the SQL query.")
-    
-    question = st.text_input(
-        "What do you want to know?",
-        placeholder="e.g., Show me all employees in the Engineering department"
-    )
-    
-    if st.button("🪄 Generate SQL", type="primary"):
-        if question:
-            with st.spinner("Generating SQL..."):
-                result = generate_sql_query(question)
-                
-                st.subheader("Generated SQL")
-                st.code(result, language="sql")
-                
-                # Option to execute
-                if st.button("▶️ Execute Generated Query"):
-                    with st.spinner("Executing..."):
-                        exec_result = query_database(result)
-                        st.markdown("### Results")
-                        st.markdown(exec_result)
-        else:
-            st.warning("Please enter a question first")
-    
-    st.divider()
-    
-    # Example questions
-    st.subheader("💡 Example Questions")
-    examples = [
-        "How many employees are in each department?",
-        "List all active projects",
-        "Show employees with their roles and departments",
-        "What is the average salary range by role?",
-        "Find all employees hired this year"
-    ]
-    
-    for example in examples:
-        if st.button(f"📝 {example}", key=example):
-            st.session_state.question = example
-            st.rerun()
 
 
 def pagination_page():
@@ -287,10 +368,11 @@ def pagination_page():
             results = query_database_raw(query)
             
             if results:
-                # Create session
                 session = session_store.create_session(query, results, page_size)
                 st.session_state.pagination_session = session.session_id
-                st.success(f"Session created: {session.session_id} ({len(results)} total rows)")
+                st.success(f"✅ Session created: {session.session_id} ({len(results)} total rows)")
+            else:
+                st.warning("No results or database not available")
     
     # Display paginated results
     if "pagination_session" in st.session_state:
@@ -301,26 +383,37 @@ def pagination_page():
             st.divider()
             
             # Navigation
-            col1, col2, col3, col4 = st.columns([1, 1, 2, 1])
+            col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 2, 1])
             
             with col1:
-                if st.button("⬅️ Previous", disabled=session.current_page <= 1):
-                    session.prev_page()
+                if st.button("⏮️ First", disabled=session.current_page <= 1):
+                    session.get_page(1)
                     st.rerun()
             
             with col2:
+                if st.button("⬅️ Prev", disabled=session.current_page <= 1):
+                    session.prev_page()
+                    st.rerun()
+            
+            with col3:
                 if st.button("➡️ Next", disabled=session.current_page >= session.total_pages):
                     session.next_page()
                     st.rerun()
             
-            with col3:
-                st.write(f"Page {session.current_page} of {session.total_pages} ({session.total_rows} total rows)")
-            
             with col4:
-                if st.button("🗑️ Clear Session"):
+                st.write(f"Page {session.current_page} of {session.total_pages} ({session.total_rows} rows)")
+            
+            with col5:
+                if st.button("🗑️ Clear"):
                     session_store.delete_session(session_id)
                     del st.session_state.pagination_session
                     st.rerun()
+            
+            # Jump to page
+            go_page = st.number_input("Go to page", 1, session.total_pages, session.current_page)
+            if go_page != session.current_page:
+                session.get_page(go_page)
+                st.rerun()
             
             # Display data
             page_data = session.get_page()
@@ -329,6 +422,183 @@ def pagination_page():
         else:
             st.warning("Session expired. Please run the query again.")
             del st.session_state.pagination_session
+
+
+def reports_page():
+    """Pre-built data reports."""
+    st.header("📈 Data Reports")
+    
+    report = st.selectbox(
+        "Select Report",
+        [
+            "👥 Employee Summary",
+            "🏢 Department Overview",
+            "📊 Role Distribution",
+            "🗂️ Project Status",
+            "📋 Full Database Summary"
+        ]
+    )
+    
+    if st.button("📊 Generate Report", type="primary"):
+        with st.spinner("Generating report..."):
+            if "Employee Summary" in report:
+                st.subheader("👥 Employee Summary")
+                
+                # Total employees
+                st.markdown(get_employees())
+                
+                # By department
+                dept_query = """
+                    SELECT d.name as Department, COUNT(*) as Employees
+                    FROM employee e JOIN department d ON e.department_id = d.id
+                    GROUP BY d.name ORDER BY Employees DESC
+                """
+                st.markdown("### By Department")
+                st.markdown(query_database(dept_query))
+            
+            elif "Department Overview" in report:
+                st.subheader("🏢 Department Overview")
+                st.markdown(get_departments())
+                
+                # Projects per department
+                proj_query = """
+                    SELECT d.name as Department, COUNT(p.id) as Projects
+                    FROM department d LEFT JOIN project p ON d.id = p.department_id
+                    GROUP BY d.name
+                """
+                st.markdown("### Projects per Department")
+                st.markdown(query_database(proj_query))
+            
+            elif "Role Distribution" in report:
+                st.subheader("📊 Role Distribution")
+                role_query = """
+                    SELECT r.title as Role, r.salary_range, COUNT(e.id) as Employees
+                    FROM role r LEFT JOIN employee e ON r.id = e.role_id
+                    GROUP BY r.title, r.salary_range
+                """
+                st.markdown(query_database(role_query))
+            
+            elif "Project Status" in report:
+                st.subheader("🗂️ Project Status")
+                proj_query = "SELECT name, description, status FROM project ORDER BY status"
+                st.markdown(query_database(proj_query))
+            
+            elif "Full Database" in report:
+                st.subheader("📋 Full Database Summary")
+                
+                st.markdown("### Tables")
+                tables_query = """
+                    SELECT table_name FROM information_schema.tables 
+                    WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+                """
+                st.markdown(query_database(tables_query))
+                
+                st.markdown("### Schema")
+                st.code(get_database_schema(), language="markdown")
+
+
+def tools_page():
+    """Utility tools page."""
+    st.header("🛠️ Tools & Utilities")
+    
+    tab1, tab2, tab3 = st.tabs(["✅ SQL Validator", "💡 Optimization Tips", "📋 List Tables"])
+    
+    with tab1:
+        st.subheader("SQL Syntax Validator")
+        sql_to_validate = st.text_area("Enter SQL to validate", height=100, key="val_sql")
+        
+        if st.button("✅ Validate SQL"):
+            if sql_to_validate:
+                result = validate_sql_syntax(sql_to_validate)
+                if "valid" in result.lower() or "✅" in result:
+                    st.success(result)
+                else:
+                    st.error(result)
+    
+    with tab2:
+        st.subheader("Query Optimization Tips")
+        sql_to_optimize = st.text_area("Enter SQL for optimization tips", height=100, key="opt_sql")
+        
+        if st.button("💡 Get Tips"):
+            if sql_to_optimize:
+                tips = get_query_optimization_tips(sql_to_optimize)
+                st.info(tips)
+    
+    with tab3:
+        st.subheader("Database Tables")
+        
+        if st.button("📋 List All Tables"):
+            tables_query = """
+                SELECT table_name FROM information_schema.tables 
+                WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+                ORDER BY table_name
+            """
+            tables = query_database_raw(tables_query)
+            
+            if tables:
+                for t in tables:
+                    table_name = t['table_name']
+                    count_result = query_database_raw(f"SELECT COUNT(*) as c FROM {table_name}")
+                    count = count_result[0]['c'] if count_result else "?"
+                    st.write(f"📋 **{table_name}** - {count} rows")
+            else:
+                st.write("📋 department, employee, role, project (static mode)")
+
+
+def status_page():
+    """Database connection status page."""
+    st.header("⚙️ Database Status")
+    
+    # Connection info
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Connection Status")
+        
+        if DB_AVAILABLE:
+            st.success("✅ Database Connected")
+        else:
+            st.warning("⚠️ Running in Static Mode")
+        
+        # Environment info
+        st.markdown("### Environment")
+        st.write(f"**STATIC_SCHEMA_MODE:** {os.environ.get('STATIC_SCHEMA_MODE', 'true')}")
+        
+        db_url = os.environ.get("DATABASE_URL", "")
+        if db_url:
+            # Mask password
+            masked = db_url.split("@")[0].split(":")[0] + ":****@" + db_url.split("@")[1] if "@" in db_url else "Configured"
+            st.write(f"**DATABASE_URL:** {masked}")
+        else:
+            st.write("**DATABASE_URL:** Not set")
+    
+    with col2:
+        st.subheader("Test Connection")
+        
+        if st.button("🔌 Test Database Connection"):
+            if DB_AVAILABLE:
+                try:
+                    result = query_database_raw("SELECT 1 as test")
+                    if result:
+                        st.success("✅ Connection successful!")
+                        st.json({"status": "connected", "test": result[0]})
+                except Exception as e:
+                    st.error(f"❌ Connection failed: {e}")
+            else:
+                st.info("Database not configured. Running in static mode.")
+        
+        if st.button("📊 Get Database Stats"):
+            if DB_AVAILABLE:
+                stats = {}
+                for table in ["employee", "department", "role", "project"]:
+                    try:
+                        result = query_database_raw(f"SELECT COUNT(*) as c FROM {table}")
+                        stats[table] = result[0]['c'] if result else 0
+                    except:
+                        stats[table] = "error"
+                st.json(stats)
+            else:
+                st.json({"mode": "static", "tables": ["department", "role", "employee", "project"]})
 
 
 if __name__ == "__main__":
