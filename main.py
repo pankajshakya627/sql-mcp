@@ -1,7 +1,30 @@
 """
 DB Agent MCP Server - Unified FastMCP server for database operations.
 
-Run with: python main.py
+This is the main entry point for the SQL MCP Server. It exposes 20+ tools
+for database interaction, natural language SQL generation, and data exploration.
+
+Architecture:
+    - FastMCP server handles MCP protocol communication
+    - LangGraph agent for intelligent query routing
+    - psycopg3 for PostgreSQL connections (uses context managers for connection pooling)
+    - Session store for paginated query results
+
+Database Connections:
+    - Uses psycopg3 context managers which automatically handle connection lifecycle
+    - Each query uses 'with get_connection() as conn:' pattern
+    - Connections are released back to pool after each request
+    - For high-concurrency, consider psycopg_pool.ConnectionPool
+
+Environment Variables:
+    DATABASE_URL: PostgreSQL connection string
+    STATIC_SCHEMA_MODE: Set to 'true' for static mode
+    OPENROUTER_API_KEY: For AI SQL generation
+    OPENAI_API_KEY: Alternative LLM API key
+
+Usage:
+    python main.py           # Run MCP server (stdio transport)
+    streamlit run app.py     # Run Streamlit Web UI
 """
 import os
 import sys
