@@ -114,12 +114,12 @@ agent_tools = [run_sql_tool, get_schema_tool]
 
 def create_agent_graph():
     """Create and compile the LangGraph agent for database queries."""
-    api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    api_key = os.environ.get("OPENROUTER_API_KEY") #or os.environ.get("OPENAI_API_KEY")
     if not api_key:
         raise ValueError("OPENROUTER_API_KEY or OPENAI_API_KEY environment variable not set.")
 
     llm = ChatOpenAI(
-        model="amazon/nova-2-lite-v1:free",
+        model="xiaomi/mimo-v2-flash:free",
         openai_api_key=api_key,
         openai_api_base="https://openrouter.ai/api/v1",
         temperature=0
